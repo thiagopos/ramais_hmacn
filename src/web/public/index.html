@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor VoIP — Telefones ALE</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a;
+    --text: #e6e9ef; --muted: #8b93a7; --accent: #4f8cff; --ok: #2ecc71;
+    --bad: #e74c3c; --warn: #f1c40f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 22px; background: var(--panel); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 8px; }
+  .spacer { flex: 1; }
+  .lastcheck {
+    display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25;
+    padding-right: 4px; margin-right: 6px;
+  }
+  .lc-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .lc-value { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #msg { color: var(--muted); font-size: 12.5px; margin-right: 10px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px 22px 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card .n { font-size: 26px; font-weight: 650; letter-spacing: -.5px; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .card.ok .n { color: var(--ok); }
+  .card.bad .n { color: var(--bad); }
+  .controls { display: flex; gap: 10px; padding: 18px 22px; flex-wrap: wrap; align-items: center; }
+  input[type=search], select {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    padding: 9px 12px; border-radius: 8px; font-size: 14px; outline: none;
+  }
+  input[type=search] { min-width: 280px; }
+  input[type=search]:focus, select:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 9px 16px; font-size: 14px; font-weight: 550; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .wrap { padding: 0 22px 40px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th {
+    background: var(--panel2); color: var(--muted); font-size: 11.5px; text-transform: uppercase;
+    letter-spacing: .05em; cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  th .arw { opacity: .5; font-size: 10px; }
+  tbody tr:hover { background: #1b1f28; }
+  tbody tr { cursor: pointer; }
+  .ramal { font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
+  .dot.off { background: var(--bad); box-shadow: 0 0 7px rgba(231,76,60,.6); }
+  .dot.unk { background: var(--muted); }
+  .st-missing { color: var(--bad); font-weight: 600; }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+  td.serial { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  .muted { color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11.5px;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
+  }
+  #msg { color: var(--muted); font-size: 13px; }
+  #drawer {
+    position: fixed; inset: 0 0 0 auto; width: min(560px, 100%); background: var(--panel);
+    border-left: 1px solid var(--line); padding: 22px; overflow: auto;
+    transform: translateX(100%); transition: transform .22s ease; z-index: 20;
+    box-shadow: -20px 0 60px rgba(0,0,0,.5);
+  }
+  #drawer.open { transform: translateX(0); }
+  #drawer h2 { margin: 0 0 4px; font-size: 20px; }
+  #drawer dl { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; margin: 18px 0; }
+  #drawer dt { color: var(--muted); font-size: 12.5px; }
+  #drawer dd { margin: 0; word-break: break-all; }
+  #close { position: absolute; top: 16px; right: 16px; background: var(--panel2); border: 1px solid var(--line); padding: 5px 11px; border-radius: 7px; }
+  .spark { display: flex; gap: 2px; align-items: flex-end; height: 42px; margin-top: 6px; }
+  .spark i { flex: 1; max-width: 18px; height: 100%; border-radius: 2px; background: var(--bad); }
+  .spark i.on { background: var(--ok); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #333a47; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Monitor VoIP <span>telefones ALE — rede 172.18.90/91.x</span></h1>
+  <div class="spacer"></div>
+  <div class="lastcheck">
+    <span class="lc-label">Último monitoramento</span>
+    <span class="lc-value" id="lastCheck">—</span>
+  </div>
+  <button id="btnMonitor">Executar monitoramento</button>
+</header>
+
+<div class="cards" id="cards"></div>
+
+<div class="controls">
+  <input type="search" id="q" placeholder="Buscar por ramal, IP, MAC, modelo ou serial…">
+  <select id="status">
+    <option value="">Todos</option>
+    <option value="online">Somente online</option>
+    <option value="offline">Somente offline</option>
+    <option value="sem-ramal">Sem ramal</option>
+  </select>
+  <span class="muted" id="count"></span>
+</div>
+
+<div class="wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-k="online">Status <span class="arw"></span></th>
+        <th data-k="ramal">Ramal <span class="arw"></span></th>
+        <th data-k="ip">IP <span class="arw"></span></th>
+        <th data-k="model">Modelo <span class="arw"></span></th>
+        <th data-k="serial">Serial <span class="arw"></span></th>
+        <th data-k="firmware">Firmware <span class="arw"></span></th>
+        <th data-k="mac">MAC <span class="arw"></span></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty" hidden>Nenhum aparelho encontrado.</div>
+</div>
+
+<div id="drawer">
+  <button id="close">Fechar</button>
+  <h2 id="dRamal">—</h2>
+  <div class="muted" id="dIp"></div>
+  <h3 style="font-size:13px;color:var(--muted);margin:22px 0 6px;text-transform:uppercase">Histórico de disponibilidade</h3>
+  <div class="spark" id="spark"></div>
+  <div class="muted" style="font-size:11.5px">cada barra = 1 ciclo de monitoramento (verde = online)</div>
+  <dl id="details"></dl>
+</div>
+
+<script>
+let all = [];
+let sortKey = 'ramal', sortDir = 1;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+function fmt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function statusDot(r) {
+  if (r.online === 0) {
+    const when = r.missing_since ? ' desde ' + fmt(r.missing_since) : '';
+    return `<span class="dot off"></span><span class="st-missing" title="não respondeu${when}">desaparecido</span>`;
+  }
+  if (r.online === 1) return '<span class="dot on"></span>online';
+  return '<span class="dot unk"></span>não verificado';
+}
+
+function render() {
+  const q = document.getElementById('q').value.toLowerCase().trim();
+  const st = document.getElementById('status').value;
+  let rows = all.filter((r) => {
+    if (q && ![r.ip, r.ramal, r.mac, r.model, r.hostname, r.serial, r.firmware].filter(Boolean)
+      .some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (st === 'online' && r.online !== 1) return false;
+    if (st === 'offline' && r.online !== 0) return false;
+    if (st === 'sem-ramal' && r.ramal) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (sortKey === 'ramal') { x = x ? +x : Infinity; y = y ? +y : Infinity; }
+    if (sortKey === 'ip') {
+      const toN = (ip) => ip.split('.').reduce((acc, o) => acc * 256 + +o, 0);
+      x = toN(x); y = toN(y);
+    }
+    if (x == null) return 1; if (y == null) return -1;
+    return (x > y ? 1 : x < y ? -1 : 0) * sortDir;
+  });
+
+  document.querySelectorAll('th').forEach((th) => {
+    const arw = th.querySelector('.arw');
+    if (arw) arw.textContent = th.dataset.k === sortKey ? (sortDir > 0 ? '▲' : '▼') : '';
+  });
+
+  document.getElementById('rows').innerHTML = rows.map((r, i) => `
+    <tr data-i="${i}">
+      <td>${statusDot(r)}</td>
+      <td class="ramal">${r.ramal || '<span class="muted">—</span>'}</td>
+      <td class="mono">${r.ip}</td>
+      <td>${r.model || '—'}</td>
+      <td class="mono muted serial" title="${r.serial || ''}">${r.serial || '—'}</td>
+      <td class="mono">${r.firmware || '—'}</td>
+      <td class="mono muted">${r.mac || '—'}</td>
+    </tr>`).join('');
+
+  document.getElementById('count').textContent = `${rows.length} de ${all.length} aparelhos`;
+  document.getElementById('empty').hidden = rows.length > 0;
+
+  document.querySelectorAll('#rows tr').forEach((tr) => {
+    tr.onclick = () => openDrawer(rows[+tr.dataset.i]);
+  });
+}
+
+function openDrawer(r) {
+  document.getElementById('dRamal').textContent = r.ramal ? `Ramal ${r.ramal}` : 'Sem ramal';
+  document.getElementById('dIp').textContent = r.ip;
+  const d = document.getElementById('details');
+  d.innerHTML = [
+    ['Modelo', r.model], ['Firmware', r.firmware], ['Serial', r.serial],
+    ['MAC', r.mac], ['User-Agent SIP', r.sip_ua], ['Servidor HTTP', r.http_server],
+    ['Portas', (() => { try { return JSON.parse(r.ports_json).join(', '); } catch { return '—'; } })()],
+    ['Primeiro visto', fmt(r.first_seen)], ['Último contato', fmt(r.last_seen)],
+    ...(r.online === 0 ? [['Desaparecido desde', fmt(r.missing_since)]] : []),
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v || '—'}</dd>`).join('');
+  document.getElementById('drawer').classList.add('open');
+
+  api('/api/history/' + encodeURIComponent(r.ip)).then((h) => {
+    document.getElementById('spark').innerHTML = h.samples.length
+      ? h.samples.map((s) => `<i class="${s.online ? 'on' : ''}" title="${fmt(s.created_at)}"></i>`).join('')
+      : '<span class="muted" style="font-size:12px">sem amostras — rode um monitoramento</span>';
+  });
+}
+
+document.getElementById('close').onclick = () => document.getElementById('drawer').classList.remove('open');
+
+document.querySelectorAll('th').forEach((th) => {
+  th.onclick = () => {
+    if (sortKey === th.dataset.k) sortDir *= -1;
+    else { sortKey = th.dataset.k; sortDir = 1; }
+    render();
+  };
+});
+document.getElementById('q').oninput = render;
+document.getElementById('status').onchange = render;
+
+document.getElementById('btnMonitor').onclick = async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  document.getElementById('msg').textContent = 'varrendo o range completo…';
+  try {
+    const r = await api('/api/monitor', { method: 'POST' });
+    const partes = [`${r.online} online`];
+    if (r.novos?.length) partes.push(`${r.novos.length} novo(s)`);
+    if (r.desaparecidos?.length) partes.push(`${r.desaparecidos.length} desaparecido(s)`);
+    document.getElementById('msg').textContent = partes.join(' · ');
+  } catch (err) {
+    document.getElementById('msg').textContent = 'erro: ' + err.message;
+  }
+  btn.disabled = false;
+  await load();
+};
+
+async function load() {
+  const [phones, stats] = await Promise.all([api('/api/phones'), api('/api/stats')]);
+  all = phones.rows;
+  document.getElementById('cards').innerHTML = `
+    <div class="card"><div class="n">${stats.total}</div><div class="l">Telefones</div></div>
+    <div class="card ok"><div class="n">${stats.online}</div><div class="l">Online</div></div>
+    <div class="card bad"><div class="n">${stats.desaparecidos ?? stats.offline}</div><div class="l">Desaparecidos</div></div>
+    <div class="card"><div class="n">${stats.comRamal}</div><div class="l">Com ramal</div></div>
+    <div class="card"><div class="n">${stats.firmwares.length}</div><div class="l">Versões de firmware</div></div>`;
+  document.getElementById('lastCheck').textContent = stats.ultimoCheck ? fmt(stats.ultimoCheck) : 'nunca';
+  render();
+}
+load();
+</script>
+</body>
+</html>

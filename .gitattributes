@@ -1,0 +1,9 @@
+# Normaliza fim de linha para evitar diffs falsos e bugs em scripts
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary

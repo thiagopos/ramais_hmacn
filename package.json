@@ -1,0 +1,44 @@
+{
+  "name": "voip-scanner",
+  "version": "1.0.0",
+  "description": "Inventário e monitoramento de telefones IP: descoberta com prova TLS/HTTP, ramal via SIP OPTIONS sem login, SQLite e interface web",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "voip-scan": "src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "scan": "node src/index.js scan",
+    "enrich": "node src/index.js enrich",
+    "monitor": "node src/index.js enrich --monitor",
+    "ramais": "node src/index.js ramais",
+    "web": "node src/index.js web",
+    "report": "node src/index.js report",
+    "export": "node src/index.js export",
+    "server": "node scripts/supervisor.mjs"
+  },
+  "keywords": [
+    "voip",
+    "sip",
+    "scanner",
+    "network",
+    "inventory",
+    "monitoring",
+    "alcatel",
+    "alcatel-lucent-enterprise",
+    "sqlite"
+  ],
+  "author": "Thiago Possa",
+  "license": "MIT",
+  "dependencies": {},
+  "files": [
+    "src",
+    "scripts",
+    "start-server.cmd",
+    "web-config.example.json",
+    "README.md"
+  ]
+}
