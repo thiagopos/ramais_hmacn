@@ -102,8 +102,8 @@ export async function enrichPhones({
     finishMonitorRun(db, runId, {
       checked: allIps.length, online, offline: rows.length - online, withRamal,
     });
-    const pruned = pruneSamples(db, 30);
-    if (pruned) log(`  (${pruned} amostras antigas removidas — retencao de 30 dias)`);
+    const pruned = pruneSamples(db, 90);
+    if (pruned) log(`  (${pruned} amostras antigas removidas — retencao de 90 dias)`);
 
     log(`\n${c.bold('== Monitoramento (varredura ampla) ==')}`);
     log(`  IPs varridos:   ${allIps.length} (${monitorTargets.join(', ')})`);

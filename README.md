@@ -171,6 +171,26 @@ cp web-config.example.json web-config.json
 Sessão por cookie `HttpOnly` (12 h), senha comparada com SHA-256 em tempo
 constante.
 
+### Gráfico de disponibilidade
+
+No painel lateral de cada aparelho, o histórico é montado **no relógio dos
+ciclos** (1 hora). Para cada hora da janela, a barra mostra:
+
+| Barra | Significado |
+|---|---|
+| verde | respondeu no ciclo |
+| vermelha | estava no inventário mas não respondeu |
+| cinza | **não houve coleta** naquela hora (servidor parado ou tarefa não rodou) |
+
+Estados acima das barras, calculados sobre a janela escolhida:
+
+- **Uptime** — % de ciclos em que respondeu (verde ≥99%, amarelo ≥90%, vermelho abaixo)
+- **Quedas** — transições online → offline (conta o momento da queda, não cada hora parada)
+- **Cobertura** — % de ciclos que efetivamente rodaram (amarelo se <95%)
+
+Janelas: **24h**, **3 dias** e **7 dias**. Passar o mouse na barra mostra a
+data/hora e o estado. Amostras são mantidas por **90 dias**.
+
 ---
 
 ## Banco de dados
@@ -276,6 +296,12 @@ $trig = @(
   (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 999))
 )
 Register-ScheduledTask -TaskName "VoIP Monitor Watchdog" -Action $act2 -Trigger $trig -Principal $principal -Settings $settings -Force
+
+# 3) varredura automatica de 1 em 1 hora
+$act3 = New-ScheduledTaskAction -Execute $node -Argument "`"$root\src\index.js`" enrich --monitor" -WorkingDirectory $root
+$trig3 = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Hours 1) -RepetitionDuration (New-TimeSpan -Days 999)
+$set3 = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "VoIP Monitor Hourly" -Action $act3 -Trigger $trig3 -Principal $principal -Settings $set3 -Force
 ```
 
 Arquitetura de resiliência:
@@ -285,7 +311,12 @@ Tarefa "VoIP Monitor Web"       -> supervisor no logon
   supervisor.mjs                -> relança o servidor em ~2s se ele morrer
     run-server.mjs              -> log em arquivo, rotação, retry interno
 Tarefa "VoIP Monitor Watchdog"  -> a cada 5 min, relança o supervisor se a porta cair
+Tarefa "VoIP Monitor Hourly"    -> varredura ampla de 1 em 1 hora
 ```
+
+`StartWhenAvailable` faz a coleta atrasada rodar assim que a máquina voltar
+(útil se o PC estiver desligado na hora marcada). Com isso a varredura roda
+também sem ninguém clicar no botão do painel.
 
 ---
 

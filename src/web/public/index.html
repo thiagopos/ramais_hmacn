@@ -125,8 +125,8 @@
   }
   #msg { color: var(--muted); font-size: 13px; }
   #drawer {
-    position: fixed; inset: 0 0 0 auto; width: min(560px, 100%); background: var(--panel);
-    border-left: 1px solid var(--line); padding: 22px; overflow: auto;
+    position: fixed; inset: 0 0 0 auto; width: min(600px, 92vw); background: var(--panel);
+    border-left: 1px solid var(--line); padding: 22px 26px 40px; overflow-y: auto; overflow-x: hidden;
     transform: translateX(100%); transition: transform .22s ease; z-index: 20;
     box-shadow: -20px 0 60px rgba(0,0,0,.5);
   }
@@ -136,9 +136,42 @@
   #drawer dt { color: var(--muted); font-size: 12.5px; }
   #drawer dd { margin: 0; word-break: break-all; }
   #close { position: absolute; top: 16px; right: 16px; background: var(--panel2); border: 1px solid var(--line); padding: 5px 11px; border-radius: 7px; }
-  .spark { display: flex; gap: 2px; align-items: flex-end; height: 42px; margin-top: 6px; }
-  .spark i { flex: 1; max-width: 18px; height: 100%; border-radius: 2px; background: var(--bad); }
-  .spark i.on { background: var(--ok); }
+
+  /* ---- gráfico de disponibilidade ---- */
+  .hist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 22px 0 10px; }
+  .hist-head h3 { font-size: 13px; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: .05em; }
+  .range-sel { display: flex; gap: 4px; }
+  .range-sel button {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
+    font-size: 11.5px; padding: 4px 10px; border-radius: 6px; font-weight: 500;
+  }
+  .range-sel button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .range-sel button:hover:not(.active) { color: var(--text); border-color: #3a4150; }
+
+  .hist-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .hs { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .hs .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .hs .k { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .hs.good .v { color: var(--ok); }
+  .hs.bad .v { color: var(--bad); }
+
+  .chart { position: relative; margin-top: 4px; }
+  .chart-bars {
+    display: flex; align-items: stretch; gap: 1px; height: 54px;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 4px;
+  }
+  .chart-bars i {
+    flex: 1 1 0; min-width: 2px; border-radius: 2px; background: var(--ok);
+    transition: filter .12s, transform .12s; cursor: default;
+  }
+  .chart-bars i.off { background: var(--bad); }
+  .chart-bars i.nodata { background: #262b36; }
+  .chart-bars i:hover { filter: brightness(1.45); }
+  .chart-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+  .chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .chart-empty { color: var(--muted); font-size: 12px; padding: 14px 0; }
   .empty { padding: 40px; text-align: center; color: var(--muted); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #333a47; border-radius: 6px; }
@@ -204,9 +237,28 @@
   <button id="close">Fechar</button>
   <h2 id="dRamal">—</h2>
   <div class="muted" id="dIp"></div>
-  <h3 style="font-size:13px;color:var(--muted);margin:22px 0 6px;text-transform:uppercase">Histórico de disponibilidade</h3>
-  <div class="spark" id="spark"></div>
-  <div class="muted" style="font-size:11.5px">cada barra = 1 ciclo de monitoramento (verde = online)</div>
+  <div class="hist-head">
+    <h3>Disponibilidade</h3>
+    <div class="range-sel" id="rangeSel">
+      <button data-h="24" class="active">24h</button>
+      <button data-h="72">3 dias</button>
+      <button data-h="168">7 dias</button>
+    </div>
+  </div>
+  <div class="hist-stats">
+    <div class="hs good"><div class="v" id="stUptime">—</div><div class="k">Uptime</div></div>
+    <div class="hs bad"><div class="v" id="stDrops">—</div><div class="k">Quedas</div></div>
+    <div class="hs"><div class="v" id="stCoverage">—</div><div class="k">Cobertura</div></div>
+  </div>
+  <div class="chart">
+    <div class="chart-bars" id="chartBars"></div>
+    <div class="chart-axis"><span id="axStart">—</span><span id="axMid"></span><span id="axEnd">agora</span></div>
+  </div>
+  <div class="chart-legend">
+    <span><i style="background:var(--ok)"></i>online</span>
+    <span><i style="background:var(--bad)"></i>desaparecido</span>
+    <span><i style="background:#262b36"></i>sem coleta</span>
+  </div>
   <dl id="details"></dl>
 </div>
 
@@ -284,6 +336,98 @@ function render() {
   });
 }
 
+/* ================= grafico de disponibilidade ================= */
+let currentIp = null;
+let currentHours = 24;
+
+function fmtShort(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtHourMin(iso) {
+  const d = new Date(iso);
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Monta uma serie no relogio dos ciclos (1 hora), marcando como "sem coleta"
+ * os intervalos em que o monitoramento nao rodou.
+ */
+function buildSeries(samples, hours, stepHours) {
+  const now = Date.now();
+  const start = now - hours * 3600000;
+  const stepMs = stepHours * 3600000;
+  const buckets = [];
+  const index = new Map();
+
+  for (let t = start; t <= now; t += stepMs) {
+    const key = Math.floor(t / stepMs);
+    if (index.has(key)) continue;
+    index.set(key, buckets.length);
+    buckets.push({ t: new Date(t).toISOString(), state: 'nodata', sample: null });
+  }
+
+  for (const s of samples) {
+    const key = Math.floor(new Date(s.created_at).getTime() / stepMs);
+    const i = index.get(key);
+    if (i !== undefined) {
+      buckets[i].state = s.online === 1 ? 'on' : 'off';
+      buckets[i].sample = s;
+    }
+  }
+  return buckets;
+}
+
+function renderChart(buckets, stats, hours) {
+  const bars = document.getElementById('chartBars');
+  bars.innerHTML = buckets.map((b) => {
+    const cls = b.state === 'on' ? '' : b.state === 'off' ? ' off' : ' nodata';
+    const quando = b.sample ? fmtShort(b.sample.created_at) : fmtShort(b.t);
+    const estado = b.state === 'on' ? 'online' : b.state === 'off' ? 'desaparecido' : 'sem coleta';
+    const extra = b.sample?.ramal ? ` · ramal ${b.sample.ramal}` : '';
+    return `<i class="${cls}" title="${quando} — ${estado}${extra}"></i>`;
+  }).join('');
+
+  const first = buckets[0];
+  const last = buckets[buckets.length - 1];
+  document.getElementById('axStart').textContent = first ? fmtShort(first.t) : '—';
+  document.getElementById('axMid').textContent = buckets.length > 2
+    ? fmtShort(buckets[Math.floor(buckets.length / 2)].t) : '';
+  document.getElementById('axEnd').textContent = last ? fmtShort(last.t) : 'agora';
+
+  document.getElementById('stUptime').textContent = stats.uptimePct != null ? stats.uptimePct + '%' : '—';
+  document.getElementById('stUptime').style.color =
+    stats.uptimePct == null ? '' : stats.uptimePct >= 99 ? 'var(--ok)' : stats.uptimePct >= 90 ? 'var(--warn)' : 'var(--bad)';
+  document.getElementById('stDrops').textContent = stats.drops;
+  document.getElementById('stDrops').style.color = stats.drops === 0 ? 'var(--muted)' : 'var(--bad)';
+  document.getElementById('stCoverage').textContent =
+    stats.coveragePct != null ? `${Math.min(100, stats.coveragePct)}%` : `${stats.total}/${stats.expected}`;
+  document.getElementById('stCoverage').style.color =
+    stats.coveragePct == null ? '' : stats.coveragePct >= 95 ? '' : 'var(--warn)';
+}
+
+async function loadHistory(ip, hours) {
+  document.getElementById('chartBars').innerHTML = '<i class="nodata" style="flex:1"></i>';
+  try {
+    const h = await api(`/api/history/${encodeURIComponent(ip)}?hours=${hours}`);
+    const buckets = buildSeries(h.samples, hours, h.step || 1);
+    renderChart(buckets, h.stats, hours);
+  } catch (e) {
+    document.getElementById('chartBars').innerHTML = '';
+    document.getElementById('axStart').textContent = 'erro ao carregar';
+  }
+}
+
+document.getElementById('rangeSel').onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b || !currentIp) return;
+  document.querySelectorAll('#rangeSel button').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active');
+  currentHours = Number(b.dataset.h);
+  loadHistory(currentIp, currentHours);
+};
+
 function openDrawer(r) {
   document.getElementById('dRamal').textContent = r.ramal ? `Ramal ${r.ramal}` : 'Sem ramal';
   document.getElementById('dIp').textContent = r.ip;
@@ -297,11 +441,8 @@ function openDrawer(r) {
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v || '—'}</dd>`).join('');
   document.getElementById('drawer').classList.add('open');
 
-  api('/api/history/' + encodeURIComponent(r.ip)).then((h) => {
-    document.getElementById('spark').innerHTML = h.samples.length
-      ? h.samples.map((s) => `<i class="${s.online ? 'on' : ''}" title="${fmt(s.created_at)}"></i>`).join('')
-      : '<span class="muted" style="font-size:12px">sem amostras — rode um monitoramento</span>';
-  });
+  currentIp = r.ip;
+  loadHistory(r.ip, currentHours);
 }
 
 document.getElementById('close').onclick = () => document.getElementById('drawer').classList.remove('open');

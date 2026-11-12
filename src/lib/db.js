@@ -337,8 +337,8 @@ export function insertSample(db, runId, ip, online, ramal, firmware) {
   ).run(runId, ip, online ? 1 : 0, ramal, firmware, new Date().toISOString());
 }
 
-/** Remove amostras mais antigas que N dias (default 30). Mantem o banco pequeno. */
-export function pruneSamples(db, days = 30) {
+/** Remove amostras mais antigas que N dias (default 90). Mantem o banco pequeno. */
+export function pruneSamples(db, days = 90) {
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
   const r = db.prepare(`DELETE FROM monitor_samples WHERE created_at < ?`).run(cutoff);
   db.prepare(`DELETE FROM monitor_runs WHERE finished_at IS NOT NULL AND finished_at < ?`).run(cutoff);
