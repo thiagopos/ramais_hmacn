@@ -30,6 +30,56 @@
   .lc-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
   .lc-value { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
   #msg { color: var(--muted); font-size: 12.5px; margin-right: 10px; }
+
+  /* ---- barra de status do monitoramento ---- */
+  .statusbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    margin: 14px 22px 0; padding: 12px 16px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel2);
+    animation: slidein .18s ease;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .statusbar[hidden] { display: none; }
+  .sb-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .sb-text { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+  .sb-text strong { font-size: 14px; }
+  .sb-text span { font-size: 12.5px; color: var(--muted); }
+  .sb-icon { width: 18px; height: 18px; flex: none; border-radius: 50%; }
+  .sb-close {
+    background: transparent; border: 0; color: var(--muted); font-size: 20px;
+    line-height: 1; padding: 0 4px; cursor: pointer;
+  }
+  .sb-close:hover { color: var(--text); }
+
+  .statusbar.running { border-color: rgba(79,140,255,.55); background: rgba(79,140,255,.10); }
+  .statusbar.running .sb-icon { border: 2px solid rgba(79,140,255,.35); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .statusbar.running strong { color: var(--accent); }
+
+  .statusbar.ok { border-color: rgba(46,204,113,.5); background: rgba(46,204,113,.10); }
+  .statusbar.ok .sb-icon { background: var(--ok); }
+  .statusbar.ok .sb-icon::after { content: '✓'; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #06210f; font-weight: 800; height: 100%; }
+  .statusbar.ok strong { color: var(--ok); }
+
+  .statusbar.warn { border-color: rgba(241,196,15,.5); background: rgba(241,196,15,.10); }
+  .statusbar.warn .sb-icon { background: var(--warn); }
+  .statusbar.warn .sb-icon::after { content: '!'; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #2a2200; font-weight: 800; height: 100%; }
+  .statusbar.warn strong { color: var(--warn); }
+
+  .statusbar.err { border-color: rgba(231,76,60,.6); background: rgba(231,76,60,.12); }
+  .statusbar.err .sb-icon { background: var(--bad); }
+  .statusbar.err .sb-icon::after { content: '×'; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #fff; font-weight: 800; height: 100%; }
+  .statusbar.err strong { color: #ff8b7e; }
+
+  /* ---- botão ---- */
+  #btnMonitor { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 210px; }
+  .btn-spinner {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.35); border-top-color: #fff;
+    animation: spin .7s linear infinite;
+  }
+  .btn-spinner[hidden] { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #btnMonitor.running { background: #35507f; cursor: progress; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px 22px 0; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
   .card .n { font-size: 26px; font-weight: 650; letter-spacing: -.5px; }
@@ -102,10 +152,24 @@
     <span class="lc-label">Último monitoramento</span>
     <span class="lc-value" id="lastCheck">—</span>
   </div>
-  <button id="btnMonitor">Executar monitoramento</button>
+  <button id="btnMonitor">
+    <span class="btn-spinner" id="spinner" hidden></span>
+    <span id="btnLabel">Executar monitoramento</span>
+  </button>
 </header>
 
 <div class="cards" id="cards"></div>
+
+<div class="statusbar" id="statusbar" hidden>
+  <div class="sb-left">
+    <span class="sb-icon" id="sbIcon"></span>
+    <div class="sb-text">
+      <strong id="sbTitle"></strong>
+      <span id="sbDetail"></span>
+    </div>
+  </div>
+  <button class="sb-close" id="sbClose" title="fechar">×</button>
+</div>
 
 <div class="controls">
   <input type="search" id="q" placeholder="Buscar por ramal, IP, MAC, modelo ou serial…">
@@ -252,22 +316,104 @@ document.querySelectorAll('th').forEach((th) => {
 document.getElementById('q').oninput = render;
 document.getElementById('status').onchange = render;
 
-document.getElementById('btnMonitor').onclick = async (e) => {
-  const btn = e.target;
-  btn.disabled = true;
-  document.getElementById('msg').textContent = 'varrendo o range completo…';
-  try {
-    const r = await api('/api/monitor', { method: 'POST' });
-    const partes = [`${r.online} online`];
-    if (r.novos?.length) partes.push(`${r.novos.length} novo(s)`);
-    if (r.desaparecidos?.length) partes.push(`${r.desaparecidos.length} desaparecido(s)`);
-    document.getElementById('msg').textContent = partes.join(' · ');
-  } catch (err) {
-    document.getElementById('msg').textContent = 'erro: ' + err.message;
-  }
-  btn.disabled = false;
-  await load();
+/* ================= status do monitoramento ================= */
+const SB = {
+  bar: document.getElementById('statusbar'),
+  icon: document.getElementById('sbIcon'),
+  title: document.getElementById('sbTitle'),
+  detail: document.getElementById('sbDetail'),
 };
+
+function showStatus(kind, title, detail = '') {
+  SB.bar.hidden = false;
+  SB.bar.className = 'statusbar ' + kind;
+  SB.title.textContent = title;
+  SB.detail.textContent = detail;
+}
+function hideStatus() { SB.bar.hidden = true; }
+
+document.getElementById('sbClose').onclick = hideStatus;
+
+let monitorTimer = null;
+let monitorStart = 0;
+
+function setRunning(on) {
+  const btn = document.getElementById('btnMonitor');
+  btn.disabled = on;
+  btn.classList.toggle('running', on);
+  document.getElementById('spinner').hidden = !on;
+  document.getElementById('btnLabel').textContent = on ? 'Monitorando…' : 'Executar monitoramento';
+  clearInterval(monitorTimer);
+  if (on) {
+    monitorStart = Date.now();
+    monitorTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - monitorStart) / 1000);
+      SB.detail.textContent = `varrendo o range completo… ${s}s`;
+    }, 200);
+  }
+}
+
+/** Mensagem amigável para falhas do monitoramento. */
+function describeError(err, httpStatus) {
+  if (httpStatus === 401) return 'Sessão expirada. Recarregue a página e entre novamente.';
+  if (httpStatus === 500) return 'O servidor encontrou um erro ao executar a varredura.';
+  const m = String(err?.message || err || '');
+  if (/Failed to fetch|NetworkError|ERR_CONNECTION/i.test(m)) {
+    return 'Não foi possível falar com o servidor. Ele pode estar reiniciando — tente novamente em alguns segundos.';
+  }
+  return m || 'Falha desconhecida.';
+}
+
+async function runMonitor() {
+  setRunning(true);
+  showStatus('running', 'Monitoramento em andamento', 'varrendo o range completo… 0s');
+
+  try {
+    const res = await fetch('/api/monitor', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      if (res.status === 409) {
+        showStatus('warn', 'Já existe um monitoramento em andamento',
+          'aguarde o término — a tela se atualiza sozinha');
+        setRunning(true);
+        pollUntilDone();
+        return;
+      }
+      showStatus('err', 'O monitoramento falhou', describeError(data.error, res.status));
+      return;
+    }
+
+    const partes = [];
+    if (data.scanned) partes.push(`${data.scanned} IPs varridos`);
+    partes.push(`${data.online} online`);
+    if (data.novos?.length) partes.push(`${data.novos.length} novo(s)`);
+    if (data.desaparecidos?.length) partes.push(`${data.desaparecidos.length} desaparecido(s)`);
+
+    const tipo = (data.novos?.length || data.desaparecidos?.length) ? 'warn' : 'ok';
+    const titulo = tipo === 'warn' ? 'Monitoramento concluído com mudanças' : 'Monitoramento concluído';
+    const segs = data.durationMs != null ? (data.durationMs / 1000).toFixed(1) : null;
+    const detalhe = partes.join(' · ') + (segs ? ` · ${segs}s` : '');
+
+    if (data.novos?.length) {
+      const lista = data.novos.map((n) => `ramal ${n.ramal || '?'} em ${n.ip}`).join(', ');
+      showStatus(tipo, titulo, `${detalhe} — novos: ${lista}`);
+    } else if (data.desaparecidos?.length) {
+      const lista = data.desaparecidos.map((d) => `ramal ${d.ramal || '?'} (${d.ip})`).join(', ');
+      showStatus(tipo, titulo, `${detalhe} — sumiram: ${lista}`);
+    } else {
+      showStatus(tipo, titulo, detalhe);
+    }
+  } catch (err) {
+    showStatus('err', 'O monitoramento falhou', describeError(err));
+  } finally {
+    setRunning(false);
+    await load();
+  }
+}
+
+document.getElementById('btnMonitor').onclick = runMonitor;
+document.getElementById('sbClose').onclick = hideStatus;
 
 async function load() {
   const [phones, stats, scope] = await Promise.all([
@@ -285,7 +431,48 @@ async function load() {
     <div class="card"><div class="n">${stats.firmwares.length}</div><div class="l">Versões de firmware</div></div>`;
   document.getElementById('lastCheck').textContent = stats.ultimoCheck ? fmt(stats.ultimoCheck) : 'nunca';
   render();
+  syncMonitorState();
 }
+
+/** Sincroniza a UI com o estado real do servidor (ex.: apos recarregar a pagina). */
+async function syncMonitorState() {
+  try {
+    const st = await api('/api/monitor/status');
+    if (st.running) {
+      const secs = Math.round((st.elapsedMs || 0) / 1000);
+      setRunning(true);
+      showStatus('running', 'Monitoramento em andamento',
+        `iniciado há ${secs}s — atualizando automaticamente ao terminar`);
+      // acompanha ate terminar
+      pollUntilDone();
+      return;
+    }
+    if (st.lastError) {
+      showStatus('err', 'O último monitoramento falhou',
+        describeError(st.lastError.message) + ` (${fmt(st.lastError.at)})`);
+    }
+  } catch { /* servidor fora: nao bloqueia a UI */ }
+}
+
+let pollTimer = null;
+function pollUntilDone() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    try {
+      const st = await api('/api/monitor/status');
+      if (st.running) {
+        const secs = Math.round((st.elapsedMs || 0) / 1000);
+        SB.detail.textContent = `iniciado há ${secs}s — aguarde, atualiza sozinho`;
+        pollUntilDone();
+      } else {
+        await load();
+      }
+    } catch {
+      pollUntilDone();
+    }
+  }, 1200);
+}
+
 load();
 </script>
 </body>

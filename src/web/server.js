@@ -127,6 +127,9 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
   const pw = password || process.env.VOIP_WEB_PASS;
   const auth = makeAuth(pw);
 
+  // estado do monitoramento (compartilhado entre requisicoes e reidratavel)
+  const mon = { running: false, startedAt: null, lastError: null, lastResult: null, promise: null };
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const route = url.pathname;
@@ -215,9 +218,45 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         return json(res, 200, { runs: rows });
       }
 
+      // estado atual do monitoramento (a UI consulta ao abrir/recarregar)
+      if (route === '/api/monitor/status' && req.method === 'GET') {
+        return json(res, 200, {
+          running: mon.running,
+          startedAt: mon.startedAt,
+          elapsedMs: mon.running ? Date.now() - new Date(mon.startedAt).getTime() : null,
+          lastError: mon.lastError,
+          lastResult: mon.lastResult,
+        });
+      }
+
       if (route === '/api/monitor' && req.method === 'POST') {
-        const r = await enrichPhones({ dbPath, verbose: false, monitor: true });
-        return json(res, 200, r);
+        // impede execucao concorrente: se ja esta rodando, devolve o estado
+        if (mon.running) {
+          return json(res, 409, {
+            error: 'Já existe um monitoramento em andamento.',
+            running: true,
+            startedAt: mon.startedAt,
+          });
+        }
+        mon.running = true;
+        mon.startedAt = new Date().toISOString();
+        mon.lastError = null;
+        const t0 = Date.now();
+        try {
+          const r = await enrichPhones({ dbPath, verbose: false, monitor: true });
+          mon.lastResult = { finishedAt: new Date().toISOString(), ...r };
+          return json(res, 200, { ...r, durationMs: Date.now() - t0 });
+        } catch (err) {
+          mon.lastError = { at: new Date().toISOString(), message: err.message };
+          console.log(`[monitor] ERRO: ${err.message}`);
+          return json(res, 500, {
+            error: err.message,
+            hint: 'Falha ao executar o monitoramento. Veja logs/server.log para detalhes.',
+          });
+        } finally {
+          mon.running = false;
+          mon.startedAt = null;
+        }
       }
 
       if (route === '/api/scope' && req.method === 'GET') {
@@ -232,11 +271,13 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
         if (remote !== '127.0.0.1' && remote !== '::1') return json(res, 404, { error: 'not found' });
         const n = Number(url.searchParams.get('row') ?? -1);
+        const click = url.searchParams.get('click') || '';
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
 <iframe id="f" style="width:1600px;height:880px;border:0"></iframe>
 <script>
 const ROW = ${n};
+const CLICK = ${JSON.stringify(click)};
 const f = document.getElementById('f');
 async function go() {
   // garante sessao nesta origem
@@ -253,10 +294,35 @@ async function go() {
   f.src = '/?t=' + Date.now();
 }
 f.onload = () => {
-  if (ROW < 0) return;
   try {
-    const rows = f.contentDocument.querySelectorAll('#rows tr');
-    if (rows[ROW]) rows[ROW].click();
+    const d = f.contentDocument;
+    const state = CLICK;
+    if (state === 'running') {
+      d.defaultView.showStatus('running', 'Monitoramento em andamento', 'varrendo o range completo… 3s');
+      d.defaultView.setRunning(true);
+      return;
+    }
+    if (state === 'ok') {
+      d.defaultView.showStatus('ok', 'Monitoramento concluído', '512 IPs varridos · 235 online · 2.5s');
+      return;
+    }
+    if (state === 'warn') {
+      d.defaultView.showStatus('warn', 'Monitoramento concluído com mudanças', '512 IPs varridos · 235 online · 1 novo(s) · 2.4s — novos: ramal 1234 em 10.0.0.10');
+      return;
+    }
+    if (state === 'err') {
+      d.defaultView.showStatus('err', 'O monitoramento falhou', 'Não foi possível falar com o servidor. Ele pode estar reiniciando — tente novamente em alguns segundos.');
+      return;
+    }
+    if (state === 'monitor') {
+      const btn = d.getElementById('btnMonitor');
+      if (btn) btn.click();
+      return;
+    }
+    if (ROW >= 0) {
+      const rows = d.querySelectorAll('#rows tr');
+      if (rows[ROW]) rows[ROW].click();
+    }
   } catch (e) { /* ignora */ }
 };
 go();

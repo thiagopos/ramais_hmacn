@@ -134,7 +134,19 @@ Painel com:
 - contadores: telefones, online, **desaparecidos**, com ramal;
 - busca por ramal, IP, MAC, modelo, serial e firmware;
 - filtro por status e ordenação por qualquer coluna;
-- botão **Executar monitoramento** (varredura ampla);
+- botão **Executar monitoramento** com feedback explícito de estado:
+
+| Estado | Como aparece |
+|---|---|
+| em andamento | barra azul com spinner e cronômetro ao vivo; botão vira "Monitorando…" |
+| concluído | barra verde com IPs varridos, online e duração |
+| concluído com mudanças | barra amarela listando **ramais novos** ou que **desapareceram** |
+| falhou | barra vermelha com motivo legível (servidor reiniciando, sessão expirada, erro interno) |
+
+O estado é mantido no servidor (`/api/monitor/status`), então recarregar a página
+durante a varredura mantém o acompanhamento. Clicar duas vezes não dispara duas
+varreduras — o segundo clique recebe `409` e a UI mostra "já existe um em andamento".
+
 - data do último monitoramento no cabeçalho;
 - painel lateral com ficha técnica completa e histórico de disponibilidade.
 
