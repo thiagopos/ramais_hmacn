@@ -96,7 +96,7 @@
 </head>
 <body>
 <header>
-  <h1>Monitor VoIP <span>telefones ALE — rede 172.18.90/91.x</span></h1>
+  <h1>Monitor VoIP <span id="subtitle">inventário de telefones IP</span></h1>
   <div class="spacer"></div>
   <div class="lastcheck">
     <span class="lc-label">Último monitoramento</span>
@@ -270,7 +270,12 @@ document.getElementById('btnMonitor').onclick = async (e) => {
 };
 
 async function load() {
-  const [phones, stats] = await Promise.all([api('/api/phones'), api('/api/stats')]);
+  const [phones, stats, scope] = await Promise.all([
+    api('/api/phones'), api('/api/stats'), api('/api/scope').catch(() => ({ targets: [] })),
+  ]);
+  if (scope.targets?.length) {
+    document.getElementById('subtitle').textContent = 'rede ' + scope.targets.join(' + ');
+  }
   all = phones.rows;
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="n">${stats.total}</div><div class="l">Telefones</div></div>
