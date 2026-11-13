@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { openDb, inventoryRows, knownTargets, setoresResumo } from '../lib/db.js';
+import { openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo } from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
@@ -157,6 +157,12 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         if (status === 'offline') rows = rows.filter((r) => r.online === 0);
         if (status === 'sem-ramal') rows = rows.filter((r) => !r.ramal);
         if (status === 'sem-setor') rows = rows.filter((r) => !r.qtd_setores);
+        // instavel = ja respondeu e caiu pelo menos uma vez
+        if (status === 'instavel') {
+          rows = rows.filter((r) => r.em_instabilidade === 1)
+            .sort((a, b) => (b.quedas - a.quedas) || (b.pct_indisponivel - a.pct_indisponivel));
+        }
+        if (status === 'estavel') rows = rows.filter((r) => r.em_instabilidade !== 1);
         if (setor) rows = rows.filter((r) => (r.setores || '').split(' | ').includes(setor));
         return json(res, 200, { count: rows.length, rows, setores });
       }
@@ -182,6 +188,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
           modelos: db.prepare(`SELECT model, COUNT(*) c FROM devices WHERE is_phone=1 GROUP BY model ORDER BY c DESC`).all(),
           firmwares: db.prepare(`SELECT firmware, COUNT(*) c FROM devices WHERE is_phone=1 AND firmware IS NOT NULL GROUP BY firmware ORDER BY c DESC`).all(),
           ultimoCheck: one(`SELECT finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1`)?.finished_at || null,
+          estabilidade: estabilidadeResumo(db),
           ultimoScan: db.prepare(`SELECT finished_at, hosts_alive, phones_found FROM scans WHERE targets NOT LIKE '%monitor%' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1`).get() || null,
         };
         db.close();
@@ -374,6 +381,15 @@ f.onload = () => {
       const btn = d.getElementById('btnMonitor');
       if (btn) btn.click();
       return;
+    }
+    // aplica um valor no filtro de status (ex.: ?click=instavel)
+    if (state && d.getElementById('status')) {
+      const sel = d.getElementById('status');
+      if ([...sel.options].some((o) => o.value === state)) {
+        sel.value = state;
+        sel.dispatchEvent(new Event('change'));
+        return;
+      }
     }
     // abre o drawer: espera as linhas existirem (render e assincrono)
     if (ROW >= 0) {

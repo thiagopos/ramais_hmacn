@@ -145,6 +145,55 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_samples_run ON monitor_samples(run_id);
     CREATE INDEX IF NOT EXISTS idx_samples_ip  ON monitor_samples(ip);
   `);
+
+  // Indicadores de estabilidade (historico de amostras).
+  // em_instabilidade: ja respondeu e depois caiu >= 1 vez — separa equipamento
+  // intermitente de aparelho que simplesmente nunca subiu.
+  db.exec(`
+    DROP VIEW IF EXISTS v_estabilidade;
+    CREATE VIEW v_estabilidade AS
+    WITH base AS (
+      SELECT ip,
+             COUNT(*)                                      AS amostras,
+             SUM(CASE WHEN online = 0 THEN 1 ELSE 0 END)   AS amostras_offline,
+             SUM(CASE WHEN online = 1 THEN 1 ELSE 0 END)   AS amostras_online,
+             MIN(CASE WHEN online = 0 THEN created_at END) AS primeira_falha,
+             MAX(CASE WHEN online = 0 THEN created_at END) AS ultima_falha
+      FROM monitor_samples GROUP BY ip
+    ),
+    q_ord AS (
+      SELECT ip, created_at, online,
+             LAG(online) OVER (PARTITION BY ip ORDER BY created_at) AS anterior
+      FROM monitor_samples
+    ),
+    q AS (
+      SELECT ip,
+             SUM(CASE WHEN online = 0 AND (anterior IS NULL OR anterior = 1) THEN 1 ELSE 0 END) AS quedas
+      FROM q_ord GROUP BY ip
+    ),
+    ultimo AS (
+      SELECT ms.ip, ms.online
+      FROM monitor_samples ms
+      JOIN (SELECT ip, MAX(id) AS ult_id FROM monitor_samples GROUP BY ip) u
+        ON u.ip = ms.ip AND u.ult_id = ms.id
+    )
+    SELECT b.ip,
+           d.ramal,
+           b.amostras,
+           b.amostras_offline,
+           b.amostras_online,
+           CASE WHEN b.amostras > 0
+                THEN ROUND(100.0 * b.amostras_offline / b.amostras, 1) END AS pct_indisponivel,
+           q.quedas,
+           CASE WHEN ult.online = 0 THEN 1 ELSE 0 END AS em_queda,
+           CASE WHEN b.amostras_online >= 2 AND q.quedas >= 1 THEN 1 ELSE 0 END AS em_instabilidade,
+           b.primeira_falha,
+           b.ultima_falha
+    FROM base b
+    JOIN q     ON q.ip = b.ip
+    JOIN ultimo ult ON ult.ip = b.ip
+    LEFT JOIN devices d ON d.ip = b.ip;
+  `);
 }
 
 export function createScan(db, { targets, options }) {
@@ -368,13 +417,16 @@ export function inventoryRows(db) {
 
   if (!temSetores) {
     return db.prepare(
-      `SELECT ip, mac, hostname, vendor, model, device_type, ramal, firmware, serial,
-              sip_ua, http_server, ports_json, tls_json, first_seen, last_seen,
-              online, missing_since,
-              NULL AS setores, NULL AS qtd_setores, NULL AS andares, NULL AS alas
-       FROM devices
-       WHERE is_phone = 1
-       ORDER BY CAST(ramal AS INTEGER) IS NULL, CAST(ramal AS INTEGER), ip`,
+      `SELECT d.ip, d.mac, d.hostname, d.vendor, d.model, d.device_type, d.ramal, d.firmware,
+              d.serial, d.sip_ua, d.http_server, d.ports_json, d.tls_json, d.first_seen,
+              d.last_seen, d.online, d.missing_since,
+              NULL AS setores, NULL AS qtd_setores, NULL AS andares, NULL AS alas,
+              e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
+              e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
+       FROM devices d
+       LEFT JOIN v_estabilidade e ON e.ip = d.ip
+       WHERE d.is_phone = 1
+       ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
     ).all();
   }
 
@@ -393,11 +445,31 @@ export function inventoryRows(db) {
               WHERE sr.ramal_curto = substr(d.ramal, 3))               AS andares,
             (SELECT GROUP_CONCAT(IFNULL(s.ala, ''), ' | ')
                FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
-              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS alas
+              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS alas,
+            e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
+            e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
      FROM devices d
+     LEFT JOIN v_estabilidade e ON e.ip = d.ip
      WHERE d.is_phone = 1
      ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
   ).all();
+}
+
+/** Resumo de estabilidade para os cards da interface. */
+export function estabilidadeResumo(db) {
+  const one = (sql) => db.prepare(sql).get().c;
+  return {
+    comHistorico: one(`SELECT COUNT(*) c FROM v_estabilidade`),
+    instaveis: one(`SELECT COUNT(*) c FROM v_estabilidade WHERE em_instabilidade = 1`),
+    emQueda: one(`SELECT COUNT(*) c FROM v_estabilidade WHERE em_queda = 1`),
+    totalQuedas: one(`SELECT IFNULL(SUM(quedas), 0) c FROM v_estabilidade`),
+    pior: db.prepare(
+      `SELECT e.ip, d.ramal, e.quedas, e.pct_indisponivel
+       FROM v_estabilidade e LEFT JOIN devices d ON d.ip = e.ip
+       WHERE e.em_instabilidade = 1
+       ORDER BY e.pct_indisponivel DESC LIMIT 1`,
+    ).get() || null,
+  };
 }
 
 /** Lista de setores distintos com contagem de ramais e telefones. */

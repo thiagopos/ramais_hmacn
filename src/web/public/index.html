@@ -116,6 +116,12 @@
   .dot.off { background: var(--bad); box-shadow: 0 0 7px rgba(231,76,60,.6); }
   .dot.unk { background: var(--muted); }
   .st-missing { color: var(--bad); font-weight: 600; }
+  .badge-queda {
+    display: inline-block; background: rgba(231,76,60,.15); border: 1px solid rgba(231,76,60,.45);
+    color: #ff8b7e; border-radius: 20px; padding: 1px 8px; font-size: 12px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .card.warn .n { color: var(--warn); }
   .setor-cell { max-width: 300px; white-space: normal; }
   .setor-tag {
     display: inline-block; background: var(--panel2); border: 1px solid var(--line);
@@ -216,6 +222,8 @@
     <option value="">Todos</option>
     <option value="online">Somente online</option>
     <option value="offline">Somente offline</option>
+    <option value="instavel">⚠ Com instabilidade (caiu alguma vez)</option>
+    <option value="estavel">Sem instabilidade registrada</option>
     <option value="sem-ramal">Sem ramal</option>
     <option value="sem-setor">Sem setor cadastrado</option>
   </select>
@@ -232,6 +240,7 @@
         <th data-k="online">Status <span class="arw"></span></th>
         <th data-k="ramal">Ramal <span class="arw"></span></th>
         <th data-k="setores">Setor <span class="arw"></span></th>
+        <th data-k="quedas">Quedas <span class="arw"></span></th>
         <th data-k="ip">IP <span class="arw"></span></th>
         <th data-k="model">Modelo <span class="arw"></span></th>
         <th data-k="serial">Serial <span class="arw"></span></th>
@@ -300,6 +309,14 @@ function statusDot(r) {
   return '<span class="dot unk"></span>não verificado';
 }
 
+/** Celula de quedas: 0 = discreto, 1+ = alerta com % de indisponibilidade. */
+function quedasCell(r) {
+  if (r.amostras == null) return '<span class="muted" title="sem historico">—</span>';
+  if (!r.quedas) return '<span class="muted">0</span>';
+  const pct = r.pct_indisponivel != null ? `${r.pct_indisponivel}%` : '';
+  return `<span class="badge-queda" title="${r.amostras_offline} de ${r.amostras} ciclos sem resposta">${r.quedas}${pct ? `<span class="muted"> · ${pct}</span>` : ''}</span>`;
+}
+
 function render() {
   const q = document.getElementById('q').value.toLowerCase().trim();
   const st = document.getElementById('status').value;
@@ -311,6 +328,8 @@ function render() {
     if (st === 'offline' && r.online !== 0) return false;
     if (st === 'sem-ramal' && r.ramal) return false;
     if (st === 'sem-setor' && r.qtd_setores) return false;
+    if (st === 'instavel' && r.em_instabilidade !== 1) return false;
+    if (st === 'estavel' && r.em_instabilidade === 1) return false;
     if (setorSel && !(r.setores || '').split(' | ').includes(setorSel)) return false;
     return true;
   });
@@ -340,6 +359,7 @@ function render() {
           ? r.setores.split(' | ').map((s) => `<span class="setor-tag">${s}</span>`).join('')
           : '<span class="muted">—</span>'}
       </td>
+      <td>${quedasCell(r)}</td>
       <td class="mono">${r.ip}</td>
       <td>${r.model || '—'}</td>
       <td class="mono muted serial" title="${r.serial || ''}">${r.serial || '—'}</td>
@@ -463,8 +483,15 @@ function openDrawer(r) {
     : '<span class="muted">não cadastrado na planilha</span>';
 
   const d = document.getElementById('details');
+  const estab = r.amostras == null
+    ? '<span class="muted">sem histórico coletado</span>'
+    : (r.quedas > 0
+        ? `<span class="badge-queda">${r.quedas} queda(s)</span> <span class="muted">· indisponível em ${r.pct_indisponivel}% dos ciclos (${r.amostras_offline}/${r.amostras})</span>`
+        : `<span style="color:var(--ok)">estável</span> <span class="muted">· ${r.amostras} ciclos sem falha</span>`);
+
   d.innerHTML = [
     ['Setor', setorHtml],
+    ['Estabilidade', estab],
     ['Modelo', r.model], ['Firmware', r.firmware], ['Serial', r.serial],
     ['MAC', r.mac], ['User-Agent SIP', r.sip_ua], ['Servidor HTTP', r.http_server],
     ['Portas', (() => { try { return JSON.parse(r.ports_json).join(', '); } catch { return '—'; } })()],
@@ -606,12 +633,25 @@ async function load() {
     nomes.map((n) => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('');
   if (nomes.includes(atual)) selSetor.value = atual;
 
+  const est = stats.estabilidade || {};
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="n">${stats.total}</div><div class="l">Telefones</div></div>
     <div class="card ok"><div class="n">${stats.online}</div><div class="l">Online</div></div>
     <div class="card bad"><div class="n">${stats.desaparecidos ?? stats.offline}</div><div class="l">Desaparecidos</div></div>
+    <div class="card ${est.instaveis ? 'warn' : ''}" id="cardInstavel" style="cursor:pointer" title="Clique para filtrar">
+      <div class="n">${est.instaveis ?? 0}</div><div class="l">Com instabilidade</div></div>
     <div class="card"><div class="n">${stats.comRamal}</div><div class="l">Com ramal</div></div>
     <div class="card"><div class="n">${stats.firmwares.length}</div><div class="l">Versões de firmware</div></div>`;
+
+  // clicar no card aplica o filtro de instabilidade
+  const card = document.getElementById('cardInstavel');
+  if (card) {
+    card.onclick = () => {
+      const sel = document.getElementById('status');
+      sel.value = sel.value === 'instavel' ? '' : 'instavel';
+      render();
+    };
+  }
   document.getElementById('lastCheck').textContent = stats.ultimoCheck ? fmt(stats.ultimoCheck) : 'nunca';
   render();
   syncMonitorState();
