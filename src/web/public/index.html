@@ -191,6 +191,124 @@
   .chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
   .chart-empty { color: var(--muted); font-size: 12px; padding: 14px 0; }
   .empty { padding: 40px; text-align: center; color: var(--muted); }
+
+  /* ================= modal de setores ================= */
+  .modal {
+    position: fixed; inset: 0; z-index: 40; display: flex;
+    align-items: center; justify-content: center; padding: 24px;
+    background: rgba(6, 8, 12, .72); backdrop-filter: blur(3px);
+    animation: fadein .14s ease;
+  }
+  .modal[hidden] { display: none; }
+  @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.99) } to { opacity: 1; transform: none } }
+
+  .modal-box {
+    width: min(640px, 100%); max-height: min(88vh, 760px); display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 30px 90px rgba(0,0,0,.65); animation: pop .18s ease;
+  }
+  .modal-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+    padding: 20px 22px 14px; border-bottom: 1px solid var(--line);
+  }
+  .modal-head h2 { margin: 0; font-size: 17px; font-weight: 620; }
+  .modal-sub { margin: 3px 0 0; color: var(--muted); font-size: 12.5px; }
+  .modal-x {
+    background: transparent; border: 0; color: var(--muted); font-size: 24px;
+    line-height: 1; padding: 0 4px; cursor: pointer; border-radius: 6px;
+  }
+  .modal-x:hover { color: var(--text); background: var(--panel2); }
+
+  .modal-body { padding: 18px 22px; overflow-y: auto; flex: 1; }
+
+  .sm-section-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .sm-tags { display: flex; flex-wrap: wrap; gap: 7px; min-height: 30px; margin-bottom: 20px; }
+  .sm-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(79,140,255,.12); border: 1px solid rgba(79,140,255,.4);
+    color: #cfe0ff; border-radius: 20px; padding: 4px 6px 4px 11px; font-size: 12.5px;
+  }
+  .sm-tag small { color: var(--muted); font-size: 11px; }
+  .sm-tag button {
+    background: transparent; border: 0; color: #9fb6dc; cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 3px; border-radius: 50%;
+  }
+  .sm-tag button:hover { color: #ff8b7e; background: rgba(231,76,60,.18); }
+
+  .sm-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+  .sm-tab {
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    color: var(--muted); font-size: 13px; font-weight: 550; padding: 8px 12px; cursor: pointer;
+  }
+  .sm-tab:hover { color: var(--text); }
+  .sm-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .sm-input {
+    width: 100%; background: #1e222b; border: 1px solid var(--line); color: var(--text);
+    padding: 9px 12px; border-radius: 8px; font-size: 13.5px; outline: none;
+    font-family: inherit;
+  }
+  .sm-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,140,255,.15); }
+  select.sm-input { cursor: pointer; }
+
+  .sm-list {
+    margin-top: 10px; max-height: 250px; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 9px; background: #15181f;
+  }
+  .sm-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 12px; cursor: pointer; border-bottom: 1px solid rgba(42,47,58,.6);
+    font-size: 13px;
+  }
+  .sm-item:last-child { border-bottom: 0; }
+  .sm-item:hover { background: #1c212b; }
+  .sm-item.sel { background: rgba(79,140,255,.14); }
+  .sm-item.vinculado { opacity: .45; cursor: default; }
+  .sm-item .meta { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+  .sm-item .badge-vinculado {
+    font-size: 10.5px; color: var(--ok); border: 1px solid rgba(46,204,113,.4);
+    border-radius: 10px; padding: 1px 7px;
+  }
+  .sm-empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  .sm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .sm-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: var(--muted); }
+  .sm-field:first-child { grid-column: 1 / -1; }
+  .sm-hint { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); }
+
+  .sm-feedback {
+    margin-top: 14px; padding: 10px 13px; border-radius: 8px; font-size: 13px;
+  }
+  .sm-feedback[hidden] { display: none; }
+  .sm-feedback.ok { background: rgba(46,204,113,.12); border: 1px solid rgba(46,204,113,.45); color: #8ff0b8; }
+  .sm-feedback.err { background: rgba(231,76,60,.12); border: 1px solid rgba(231,76,60,.5); color: #ff9a8f; }
+
+  .modal-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 14px 22px; border-top: 1px solid var(--line); background: #14171d;
+    border-radius: 0 0 14px 14px;
+  }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--line); color: var(--text);
+    padding: 9px 16px; border-radius: 8px; font-size: 13.5px; cursor: pointer;
+  }
+  .btn-ghost:hover { background: var(--panel2); }
+  .btn-primary {
+    background: var(--accent); border: 0; color: #fff; font-weight: 600;
+    padding: 9px 18px; border-radius: 8px; font-size: 13.5px; cursor: pointer;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-edit-setor {
+    background: transparent; border: 1px solid var(--line); color: var(--accent);
+    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; margin-left: 6px;
+  }
+  .btn-edit-setor:hover { background: rgba(79,140,255,.12); border-color: var(--accent); }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #333a47; border-radius: 6px; }
 </style>
@@ -290,6 +408,85 @@
     <span><i style="background:#262b36"></i>sem coleta</span>
   </div>
   <dl id="details"></dl>
+</div>
+
+<!-- ================= modal de edicao de setores ================= -->
+<div id="setorModal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="smTitle">
+    <header class="modal-head">
+      <div>
+        <h2 id="smTitle">Editar setores</h2>
+        <p class="modal-sub" id="smSub"></p>
+      </div>
+      <button class="modal-x" id="smClose" title="Fechar (Esc)">×</button>
+    </header>
+
+    <div class="modal-body">
+      <div class="sm-section-label">Setores vinculados</div>
+      <div id="smAtuais" class="sm-tags"><span class="muted">carregando…</span></div>
+
+      <div class="sm-tabs">
+        <button class="sm-tab active" data-tab="existente">Setor existente</button>
+        <button class="sm-tab" data-tab="novo">Novo setor</button>
+      </div>
+
+      <!-- aba: setor existente -->
+      <div class="sm-pane" id="pane-existente">
+        <input type="search" id="smBusca" class="sm-input" placeholder="Filtrar setores por nome ou andar…" autocomplete="off">
+        <div class="sm-list" id="smLista"></div>
+      </div>
+
+      <!-- aba: novo setor -->
+      <div class="sm-pane" id="pane-novo" hidden>
+        <div class="sm-grid">
+          <label class="sm-field">
+            <span>Setor *</span>
+            <input type="text" id="smNome" class="sm-input" placeholder="ex.: DTI, Farmácia Estoque…" autocomplete="off">
+          </label>
+          <label class="sm-field">
+            <span>Andar</span>
+            <select id="smAndar" class="sm-input">
+              <option value="">—</option>
+              <option>Térreo</option>
+              <option>1º Andar</option>
+              <option>2º Andar</option>
+              <option>3º Andar</option>
+              <option>4º Andar</option>
+              <option>5º Andar</option>
+              <option>6º Andar</option>
+            </select>
+          </label>
+          <label class="sm-field">
+            <span>Prédio</span>
+            <select id="smPredio" class="sm-input">
+              <option value="">—</option>
+              <option>Hospitalar</option>
+              <option>Administrativo</option>
+            </select>
+          </label>
+          <label class="sm-field">
+            <span>Ala</span>
+            <select id="smAla" class="sm-input">
+              <option value="">—</option>
+              <option>A</option>
+              <option>B</option>
+            </select>
+          </label>
+        </div>
+        <p class="sm-hint" id="smHint">Se já existir um setor com o mesmo nome e andar, o vínculo usa o existente.</p>
+      </div>
+
+      <div class="sm-feedback" id="smFeedback" hidden></div>
+    </div>
+
+    <footer class="modal-foot">
+      <span class="muted" id="smCounter"></span>
+      <div>
+        <button class="btn-ghost" id="smCancel">Fechar</button>
+        <button class="btn-primary" id="smSalvar">Vincular</button>
+      </div>
+    </footer>
+  </div>
 </div>
 
 <script>
@@ -671,12 +868,15 @@ function openDrawer(r) {
   const partes = (r.setores || '').split(' | ');
   const andares = (r.andares || '').split(' | ');
   const alas = (r.alas || '').split(' | ');
-  const setorHtml = r.setores
+  const setorHtml = (r.setores
     ? partes.map((s, i) => {
         const extra = [andares[i], alas[i]].filter((x) => x && x !== '').join(' · ');
         return `<div style="margin-bottom:4px">${s}${extra ? ` <span class="muted" style="font-size:12px">(${extra})</span>` : ''}</div>`;
       }).join('')
-    : '<span class="muted">não cadastrado na planilha</span>';
+    : '<span class="muted">não cadastrado</span>')
+    + (r.ramal
+        ? `<button class="btn-edit-setor" id="btnEditSetor">${r.setores ? 'Editar' : 'Adicionar setor'}</button>`
+        : '');
 
   const d = document.getElementById('details');
   const estab = r.amostras == null
@@ -696,11 +896,209 @@ function openDrawer(r) {
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null ? '—' : v}</dd>`).join('');
   document.getElementById('drawer').classList.add('open');
 
+  const btnEdit = document.getElementById('btnEditSetor');
+  if (btnEdit) btnEdit.onclick = () => smAbrir(r.ramal);
+
   currentIp = r.ip;
   loadHistory(r.ip, currentHours);
 }
 
 document.getElementById('close').onclick = () => document.getElementById('drawer').classList.remove('open');
+
+/* ================= edicao de setores ================= */
+const SM = {
+  modal: document.getElementById('setorModal'),
+  tags: document.getElementById('smAtuais'),
+  lista: document.getElementById('smLista'),
+  busca: document.getElementById('smBusca'),
+  feedback: document.getElementById('smFeedback'),
+  salvar: document.getElementById('smSalvar'),
+  counter: document.getElementById('smCounter'),
+  ramp: null,          // ramal em edicao (6 digitos)
+  catalogo: [],        // todos os setores
+  atuais: [],          // vinculos do ramal
+  aba: 'existente',
+  selecionado: null,   // setor_id escolhido na aba existente
+};
+
+function smFeedback(tipo, texto) {
+  if (!tipo) { SM.feedback.hidden = true; return; }
+  SM.feedback.hidden = false;
+  SM.feedback.className = 'sm-feedback ' + tipo;
+  SM.feedback.textContent = texto;
+}
+
+function smRenderAtuais() {
+  if (!SM.atuais.length) {
+    SM.tags.innerHTML = '<span class="muted" style="font-size:12.5px">Nenhum setor vinculado a este ramal.</span>';
+    return;
+  }
+  SM.tags.innerHTML = SM.atuais.map((s) => `
+    <span class="sm-tag">
+      ${s.setor}${s.andar ? ` <small>${s.andar}</small>` : ''}
+      <button data-setor="${s.setor_id}" title="Remover este setor">×</button>
+    </span>`).join('');
+
+  SM.tags.querySelectorAll('button[data-setor]').forEach((b) => {
+    b.onclick = () => smDesvincular(Number(b.dataset.setor));
+  });
+}
+
+async function smDesvincular(setorId) {
+  const s = SM.atuais.find((x) => x.setor_id === setorId);
+  if (!s) return;
+  if (!confirm(`Remover o ramal ${SM.ramp} do setor "${s.setor}"?`)) return;
+
+  SM.salvar.disabled = true;
+  try {
+    const r = await api('/api/ramais/desvincular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ramal: SM.ramp, setorId }),
+    });
+    if (!r.ok) { smFeedback('err', r.erro || 'não foi possível remover'); return; }
+    smFeedback('ok', `Removido de "${s.setor}".`);
+    await smCarregar();
+    await load();
+  } catch (e) {
+    smFeedback('err', 'falha de comunicação com o servidor');
+  } finally {
+    SM.salvar.disabled = false;
+  }
+}
+
+function smRenderLista() {
+  const q = SM.busca.value.toLowerCase().trim();
+  const vinculados = new Set(SM.atuais.map((s) => s.setor_id));
+  const itens = SM.catalogo.filter((s) => {
+    if (!q) return true;
+    return `${s.setor} ${s.andar || ''} ${s.predio || ''} ${s.ala || ''}`.toLowerCase().includes(q);
+  });
+
+  SM.counter.textContent = `${itens.length} de ${SM.catalogo.length} setores`;
+  if (!itens.length) {
+    SM.lista.innerHTML = '<div class="sm-empty">Nenhum setor encontrado.</div>';
+    return;
+  }
+
+  SM.lista.innerHTML = itens.map((s) => {
+    const vinc = vinculados.has(s.id);
+    const sel = SM.selecionado === s.id;
+    const meta = [s.andar, s.predio, s.ala ? 'Ala ' + s.ala : null].filter(Boolean).join(' · ');
+    return `<div class="sm-item ${vinc ? 'vinculado' : ''} ${sel ? 'sel' : ''}" data-id="${s.id}">
+      <span>${s.setor}</span>
+      <span class="meta">${meta || '—'}${vinc ? ' <span class="badge-vinculado">já vinculado</span>' : ''}</span>
+    </div>`;
+  }).join('');
+
+  SM.lista.querySelectorAll('.sm-item:not(.vinculado)').forEach((el) => {
+    el.onclick = () => {
+      SM.selecionado = Number(el.dataset.id);
+      smRenderLista();
+    };
+  });
+}
+
+function smSetAba(aba) {
+  SM.aba = aba;
+  document.querySelectorAll('.sm-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === aba));
+  document.getElementById('pane-existente').hidden = aba !== 'existente';
+  document.getElementById('pane-novo').hidden = aba !== 'novo';
+  document.getElementById('smSalvar').textContent = aba === 'novo' ? 'Criar e vincular' : 'Vincular';
+  // o contador de setores so faz sentido na lista
+  document.getElementById('smCounter').style.visibility = aba === 'novo' ? 'hidden' : 'visible';
+  smFeedback(null);
+}
+
+async function smCarregar() {
+  const [cat, atuais] = await Promise.all([
+    api('/api/setores/catalogo'),
+    api(`/api/ramais/${encodeURIComponent(SM.ramp)}/setores`),
+  ]);
+  SM.catalogo = cat.rows || [];
+  SM.atuais = atuais.rows || [];
+  SM.selecionado = null;
+  smRenderAtuais();
+  smRenderLista();
+}
+
+async function smAbrir(ramal) {
+  if (!ramal) { alert('Este aparelho não tem ramal configurado.'); return; }
+  SM.ramp = ramal;
+  document.getElementById('smSub').textContent = `Ramal ${ramal}`;
+  document.getElementById('smBusca').value = '';
+  document.getElementById('smNome').value = '';
+  smFeedback(null);
+  smSetAba('existente');
+  SM.modal.hidden = false;
+  await smCarregar();
+  setTimeout(() => SM.busca.focus(), 50);
+}
+
+function smFechar() {
+  SM.modal.hidden = true;
+  SM.ramp = null;
+}
+
+async function smVincular() {
+  SM.salvar.disabled = true;
+  smFeedback(null);
+  try {
+    const payload = { ramal: SM.ramp };
+
+    if (SM.aba === 'existente') {
+      if (!SM.selecionado) { smFeedback('err', 'Selecione um setor na lista.'); return; }
+      payload.setorId = SM.selecionado;
+    } else {
+      const nome = document.getElementById('smNome').value.trim();
+      if (!nome) { smFeedback('err', 'Informe o nome do setor.'); return; }
+      payload.setor = nome;
+      payload.andar = document.getElementById('smAndar').value;
+      payload.predio = document.getElementById('smPredio').value;
+      payload.ala = document.getElementById('smAla').value;
+    }
+
+    const r = await api('/api/ramais/vincular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) { smFeedback('err', r.erro || 'não foi possível vincular'); return; }
+
+    const nomeSetor = SM.catalogo.find((s) => s.id === r.setorId)?.setor
+      || document.getElementById('smNome').value.trim();
+    smFeedback('ok', r.jaExistia
+      ? `O ramal ${SM.ramp} já estava em "${nomeSetor}".`
+      : `Ramal ${SM.ramp} vinculado a "${nomeSetor}".` + (r.criado ? ' (setor criado)' : ''));
+
+    document.getElementById('smNome').value = '';
+    await smCarregar();
+    await load();
+  } catch (e) {
+    smFeedback('err', 'falha de comunicação com o servidor');
+  } finally {
+    SM.salvar.disabled = false;
+  }
+}
+
+document.getElementById('smClose').onclick = smFechar;
+document.getElementById('smCancel').onclick = smFechar;
+document.getElementById('smSalvar').onclick = smVincular;
+SM.busca.oninput = smRenderLista;
+SM.busca.onkeydown = (e) => {
+  if (e.key === 'Enter') {
+    // Enter seleciona o primeiro resultado disponivel
+    const first = SM.lista.querySelector('.sm-item:not(.vinculado)');
+    if (first) { SM.selecionado = Number(first.dataset.id); smRenderLista(); smVincular(); }
+  }
+};
+document.querySelectorAll('.sm-tab').forEach((t) => { t.onclick = () => smSetAba(t.dataset.tab); });
+document.querySelector('.modal').onclick = (e) => { if (e.target.id === 'setorModal') smFechar(); };
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !SM.modal.hidden) smFechar();
+});
+// Enter no campo de nome cria o setor
+document.getElementById('smNome').onkeydown = (e) => { if (e.key === 'Enter') smVincular(); };
 
 document.querySelectorAll('th').forEach((th) => {
   th.onclick = () => {

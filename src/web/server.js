@@ -15,7 +15,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo } from '../lib/db.js';
+import {
+  openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
+  listarSetores, setoresDoRamal, vincularSetor, desvincularSetor,
+} from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
@@ -121,6 +124,18 @@ function readForm(req, limit = 4096) {
   });
 }
 
+/** Le corpo JSON (limitado). Retorna {} se vazio/invalido. */
+async function readJsonBody(req, limit = 64 * 1024) {
+  const raw = await readForm(req, limit);
+  if (!raw) return {};
+  try {
+    const o = JSON.parse(raw);
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1', password } = {}) {
   // garante schema
   openDb(dbPath).close();
@@ -172,6 +187,45 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const rows = setoresResumo(db);
         db.close();
         return json(res, 200, { count: rows.length, rows });
+      }
+
+      // ---- edicao de setores ----
+
+      // catalogo completo (para o seletor da interface)
+      if (route === '/api/setores/catalogo' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = listarSetores(db);
+        db.close();
+        return json(res, 200, { rows });
+      }
+
+      // setores vinculados a um ramal
+      if (route.startsWith('/api/ramais/') && route.endsWith('/setores') && req.method === 'GET') {
+        const ramal = decodeURIComponent(route.slice('/api/ramais/'.length, -'/setores'.length));
+        const db = openDb(dbPath);
+        const rows = setoresDoRamal(db, ramal);
+        db.close();
+        return json(res, 200, { ramal, rows });
+      }
+
+      // vincula (existente ou novo setor)
+      if (route === '/api/ramais/vincular' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = vincularSetor(db, { ...body, fonte: 'manual' });
+        db.close();
+        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
+        return json(res, 200, { ok: true, ...r });
+      }
+
+      // remove vinculo
+      if (route === '/api/ramais/desvincular' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = desvincularSetor(db, body);
+        db.close();
+        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
+        return json(res, 200, { ok: true });
       }
 
       if (route === '/api/stats' && req.method === 'GET') {
@@ -396,6 +450,19 @@ f.onload = function () {
           btn.click();
           Array.from(d.querySelectorAll("#rangeSel button")).forEach(function (x) { x.classList.remove("active"); });
           btn.classList.add("active");
+        }
+        // abre o modal de setores (?click=modal | modal-novo)
+        if (state === "modal" || state === "modal-novo") {
+          const eb = d.getElementById("btnEditSetor");
+          if (eb) {
+            eb.click();
+            if (state === "modal-novo") {
+              setTimeout(function () {
+                const tab = d.querySelector('.sm-tab[data-tab="novo"]');
+                if (tab) tab.click();
+              }, 700);
+            }
+          }
         }
       } else if (++tries > 40) clearInterval(t);
     }, 150);

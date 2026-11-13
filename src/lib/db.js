@@ -513,3 +513,109 @@ export function setoresResumo(db) {
      ORDER BY s.setor`,
   ).all();
 }
+
+/* =====================================================================
+ * EDIÇÃO DE SETORES  (vinculo ramal <-> setor)
+ * ===================================================================== */
+
+/** Normaliza o ramal para 4 digitos (aceita 402300, 2300). */
+export function ramalCurto(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length === 6 && (d.startsWith('40') || d.startsWith('41'))) return d.slice(2);
+  if (d.length === 4) return d;
+  return null;
+}
+
+/** Todos os setores cadastrados, com contagem de ramais. */
+export function listarSetores(db) {
+  return db.prepare(
+    `SELECT s.id, s.setor, s.andar, s.predio, s.ala, s.origem,
+            (SELECT COUNT(*) FROM setor_ramais sr WHERE sr.setor_id = s.id) AS ramais
+     FROM setores s
+     ORDER BY s.setor, IFNULL(s.andar, '')`,
+  ).all();
+}
+
+/** Setores vinculados a um ramal (com o id do vinculo para remocao). */
+export function setoresDoRamal(db, ramal) {
+  const curto = ramalCurto(ramal);
+  if (!curto) return [];
+  return db.prepare(
+    `SELECT sr.id AS vinculo_id, s.id AS setor_id, s.setor, s.andar, s.predio, s.ala, s.origem
+     FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
+     WHERE sr.ramal_curto = ?
+     ORDER BY s.setor`,
+  ).all(curto);
+}
+
+/**
+ * Vincula um ramal a um setor.
+ * - setorId informado: usa o setor existente.
+ * - caso contrario: cria o setor (reusa se nome+andar ja existirem).
+ */
+export function vincularSetor(db, { ramal, setorId, setor, andar, predio, ala, fonte = 'manual' }) {
+  const curto = ramalCurto(ramal);
+  if (!curto) return { ok: false, erro: 'ramal invalido (informe 4 ou 6 digitos)' };
+
+  const dev = db.prepare(`SELECT ip, ramal FROM devices WHERE substr(ramal, 3) = ? OR ramal = ?`).get(curto, ramal);
+  if (!dev) return { ok: false, erro: `ramal ${curto} nao existe no inventario` };
+
+  let id = Number(setorId) || null;
+  let criado = false;
+
+  if (!id) {
+    const nome = String(setor || '').trim();
+    if (!nome) return { ok: false, erro: 'informe o nome do setor' };
+    const and = String(andar || '').trim() || null;
+    const ex = db.prepare(
+      `SELECT id FROM setores WHERE setor = ? AND IFNULL(andar,'') = IFNULL(?,'') LIMIT 1`,
+    ).get(nome, and);
+    if (ex) {
+      id = ex.id;
+    } else {
+      const info = db.prepare(
+        `INSERT INTO setores (setor, andar, predio, ala, origem, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(nome, and, String(predio || '').trim() || null, String(ala || '').trim() || null,
+        fonte, new Date().toISOString());
+      id = Number(info.lastInsertRowid);
+      criado = true;
+    }
+  } else {
+    const existe = db.prepare(`SELECT id FROM setores WHERE id = ?`).get(id);
+    if (!existe) return { ok: false, erro: 'setor informado nao existe' };
+  }
+
+  const ja = db.prepare(`SELECT id FROM setor_ramais WHERE setor_id = ? AND ramal_curto = ?`).get(id, curto);
+  if (ja) return { ok: true, setorId: id, criado, jaExistia: true };
+
+  db.prepare(`INSERT INTO setor_ramais (setor_id, ramal_curto, ocorrencias, linha_origem) VALUES (?, ?, 1, NULL)`)
+    .run(id, curto);
+
+  const nomeSetor = db.prepare(`SELECT setor FROM setores WHERE id = ?`).get(id)?.setor || id;
+  const scanId = db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m;
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(scanId, dev.ip, 'setor_vinculado', `ramal ${dev.ramal || curto} -> ${nomeSetor} [${fonte}]`, new Date().toISOString());
+
+  return { ok: true, setorId: id, criado, jaExistia: false };
+}
+
+/** Remove o vinculo de um ramal com um setor. */
+export function desvincularSetor(db, { ramal, setorId }) {
+  const curto = ramalCurto(ramal);
+  const sid = Number(setorId);
+  if (!curto || !sid) return { ok: false, erro: 'ramal ou setor invalido' };
+
+  const dev = db.prepare(`SELECT ip, ramal FROM devices WHERE substr(ramal, 3) = ?`).get(curto);
+  const s = db.prepare(`SELECT setor FROM setores WHERE id = ?`).get(sid);
+
+  const r = db.prepare(`DELETE FROM setor_ramais WHERE setor_id = ? AND ramal_curto = ?`).run(sid, curto);
+  if (!Number(r.changes)) return { ok: false, erro: 'vinculo nao encontrado' };
+
+  const scanId = db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m;
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(scanId, dev?.ip || '*', 'setor_desvinculado',
+      `ramal ${dev?.ramal || curto} removido de ${s?.setor || sid}`, new Date().toISOString());
+
+  return { ok: true };
+}
