@@ -8,6 +8,7 @@
  *   node src/index.js export [--format csv|json] [--out arquivo]
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import { runScan, printTable } from './scan.js';
 import { enrichPhones, printRamais } from './enrich.js';
 import { openDb, listPhones, listDevices } from './lib/db.js';
@@ -36,6 +37,17 @@ function parseArgs(argv) {
 const [, , command = 'scan', ...rest] = process.argv;
 const args = parseArgs(rest);
 const dbPath = args.db || DEFAULTS.dbPath;
+
+/** Le web-config.json do diretorio de trabalho (nao versionado). */
+function readWebConfig() {
+  try {
+    const p = path.resolve('web-config.json');
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, 'utf8'));
+  } catch (e) {
+    console.warn(`aviso: web-config.json invalido (${e.message}), usando padroes`);
+  }
+  return {};
+}
 
 async function main() {
   switch (command) {
@@ -122,11 +134,13 @@ async function main() {
 
     case 'web': {
       const { startWeb } = await import('./web/server.js');
+      // precedencia: flag da CLI > web-config.json > padrao
+      const conf = readWebConfig();
       await startWeb({
         dbPath,
-        port: args.port ? Number(args.port) : 8080,
-        host: args.host ? String(args.host) : '127.0.0.1',
-        password: args.password || undefined,
+        port: args.port ? Number(args.port) : Number(conf.port || 8080),
+        host: args.host ? String(args.host) : String(conf.host || '127.0.0.1'),
+        password: args.password || conf.password || undefined,
       });
       break;
     }

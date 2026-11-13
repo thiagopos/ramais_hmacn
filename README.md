@@ -275,7 +275,37 @@ start-server.cmd    atalho para subir o servidor
 
 ---
 
-## Rodando como serviço
+## Rodando com PM2 (recomendado)
+
+O `ecosystem.config.cjs` define dois apps:
+
+| App | Comportamento |
+|---|---|
+| `voip-web` | servidor web + API; `autorestart: true` (PM2 religa se cair) |
+| `voip-monitor` | varredura `enrich --monitor`; `autorestart: false` + `cron_restart: '0 * * * *'` — roda, termina e aguarda o próximo ciclo |
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2-startup install    # sobe no boot do Windows (só na primeira vez)
+```
+
+O `web-config.json` (porta, host e senha) é lido pela CLI `web`, tanto no uso
+direto quanto sob o PM2.
+
+> `voip-monitor` aparecer como `stopped` entre ciclos é o **esperado** — o PM2 o
+> acorda no horário do cron. Só `errored` indica problema.
+
+---
+
+## Alternativa sem PM2 (Tarefas Agendadas)
+
+O projeto ainda traz `scripts/supervisor.mjs`, `scripts/run-server.mjs` e
+`scripts/watchdog.cmd` para quem não usa PM2.
+
+> **Não use os dois caminhos ao mesmo tempo.** Em 13/11 eles rodaram juntos e
+> criaram duas instâncias do servidor disputando a porta 8181 — o watchdog
+> relançava o supervisor porque checava a porta, e não o processo.
 
 Scripts prontos para Windows (tarefa agendada + supervisor + watchdog).
 
