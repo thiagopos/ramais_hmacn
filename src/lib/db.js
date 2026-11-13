@@ -386,12 +386,38 @@ export function insertSample(db, runId, ip, online, ramal, firmware) {
   ).run(runId, ip, online ? 1 : 0, ramal, firmware, new Date().toISOString());
 }
 
-/** Remove amostras mais antigas que N dias (default 90). Mantem o banco pequeno. */
-export function pruneSamples(db, days = 90) {
+/**
+ * Remove amostras e ciclos mais antigos que N dias (default 30).
+ *
+ * O intervalo de coleta importa: com 15 min e 237 telefones sao ~23 mil
+ * linhas/dia. 30 dias ficam em ~680 mil linhas (~100 MB), ainda folgado
+ * para SQLite. Se o intervalo voltar a 1h, 30 dias sao ~170 mil linhas.
+ */
+export function pruneSamples(db, days = 30) {
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
   const r = db.prepare(`DELETE FROM monitor_samples WHERE created_at < ?`).run(cutoff);
   db.prepare(`DELETE FROM monitor_runs WHERE finished_at IS NOT NULL AND finished_at < ?`).run(cutoff);
   return Number(r.changes);
+}
+
+/**
+ * Recupera espaco no arquivo apos poda grande (VACUUM).
+ * Roda so de vez em quando: pool gratuito > 30% indica que vale compactar.
+ */
+export function maybeVacuum(db) {
+  try {
+    const freelist = db.prepare(`PRAGMA freelist_count`).get();
+    const pages = db.prepare(`PRAGMA page_count`).get();
+    const livre = freelist?.freelist_count ?? 0;
+    const total = pages?.page_count ?? 0;
+    if (total > 0 && livre / total > 0.3) {
+      db.exec('VACUUM');
+      return true;
+    }
+  } catch {
+    // VACUUM pode falhar se outro processo estiver escrevendo: ignora
+  }
+  return false;
 }
 
 /** Ranges usados em scans de rede anteriores (exclui os ciclos de monitoramento). */

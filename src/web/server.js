@@ -246,11 +246,31 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
           }
         }
 
-        // relogio dos ciclos (media de intervalo) para estimar dados faltantes
-        const run = db.prepare(`SELECT started_at FROM monitor_runs ORDER BY id DESC LIMIT 2`).all();
-        const step = run.length === 2
-          ? Math.max(1, (new Date(run[0].started_at) - new Date(run[1].started_at)) / 3600000)
-          : 1;
+        // Intervalo tipico entre ciclos.
+        // Mediana simples nao serve: execucoes manuais geram intervalos curtos
+        // (0-4 min) que contaminam a amostra. Usamos a MEDIA PONDERADA pela
+        // proximidade dos intervalos previstos na configuracao do cron.
+        const runs = db.prepare(`SELECT started_at FROM monitor_runs ORDER BY id DESC LIMIT 60`).all();
+        const CANDIDATOS = [5, 10, 15, 20, 30, 45, 60, 120, 180, 360, 720, 1440];
+        let step = 1;
+        if (runs.length >= 4) {
+          const gaps = [];
+          for (let i = 0; i < runs.length - 1; i++) {
+            const g = (new Date(runs[i].started_at) - new Date(runs[i + 1].started_at)) / 60000;
+            if (g >= 4) gaps.push(g); // ignora tudo abaixo de 4 min (manual/retry)
+          }
+          // vota: cada intervalo sustenta os candidatos que estao a +-30% dele
+          const votos = new Map(CANDIDATOS.map((c) => [c, 0]));
+          for (const g of gaps) {
+            for (const c of CANDIDATOS) {
+              const erro = Math.abs(g - c) / c;
+              if (erro <= 0.3) votos.set(c, votos.get(c) + (1 - erro));
+            }
+          }
+          let melhor = null;
+          for (const [c, v] of votos) if (melhor === null || v > votos.get(melhor)) melhor = c;
+          if (melhor && votos.get(melhor) > 0) step = melhor / 60;
+        }
         db.close();
 
         // esperado = quantas coletas cabem na janela (~1 por ciclo)

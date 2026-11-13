@@ -180,6 +180,7 @@
   .chart-bars i.nodata { background: #262b36; }
   .chart-bars i:hover { filter: brightness(1.45); }
   .chart-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
+  .chart-gran { margin-top: 2px; font-size: 10.5px; color: var(--muted); text-align: right; opacity: .8; }
   .chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); }
   .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -260,6 +261,7 @@
   <div class="hist-head">
     <h3>Disponibilidade</h3>
     <div class="range-sel" id="rangeSel">
+      <button data-h="6">6h</button>
       <button data-h="24" class="active">24h</button>
       <button data-h="72">3 dias</button>
       <button data-h="168">7 dias</button>
@@ -273,6 +275,7 @@
   <div class="chart">
     <div class="chart-bars" id="chartBars"></div>
     <div class="chart-axis"><span id="axStart">—</span><span id="axMid"></span><span id="axEnd">agora</span></div>
+    <div class="chart-gran" id="axGran"></div>
   </div>
   <div class="chart-legend">
     <span><i style="background:var(--ok)"></i>online</span>
@@ -395,12 +398,17 @@ function fmtHourMin(iso) {
  */
 function buildSeries(samples, hours, stepHours) {
   const now = Date.now();
-  const start = now - hours * 3600000;
   const stepMs = stepHours * 3600000;
+  const inicioJanela = now - hours * 3600000;
+
+  // primeiro bucket alinhado ao relogio, dentro da janela
+  const primeiro = Math.ceil(inicioJanela / stepMs) * stepMs;
+  // ultimo bucket cujo inicio ja passou (nao inventa barra para o futuro)
+  const ultimo = Math.floor(now / stepMs) * stepMs;
+
   const buckets = [];
   const index = new Map();
-
-  for (let t = start; t <= now; t += stepMs) {
+  for (let t = primeiro; t <= ultimo; t += stepMs) {
     const key = Math.floor(t / stepMs);
     if (index.has(key)) continue;
     index.set(key, buckets.length);
@@ -430,10 +438,17 @@ function renderChart(buckets, stats, hours) {
 
   const first = buckets[0];
   const last = buckets[buckets.length - 1];
-  document.getElementById('axStart').textContent = first ? fmtShort(first.t) : '—';
+  // em janelas curtas o horario completo e grande demais: mostra so hh:mm
+  const h = Number(document.getElementById('chartBars').dataset.hours || 24);
+  const fnEixo = h <= 12 ? fmtHourMin : fmtShort;
+  document.getElementById('axStart').textContent = first ? fnEixo(first.t) : '—';
   document.getElementById('axMid').textContent = buckets.length > 2
-    ? fmtShort(buckets[Math.floor(buckets.length / 2)].t) : '';
-  document.getElementById('axEnd').textContent = last ? fmtShort(last.t) : 'agora';
+    ? fnEixo(buckets[Math.floor(buckets.length / 2)].t) : '';
+  document.getElementById('axEnd').textContent = last ? fnEixo(last.t) : 'agora';
+  // cada barra vale 1 ciclo: informa a granularidade
+  const minutos = Math.round((stats.step || 1) * 60);
+  document.getElementById('axGran').textContent =
+    `cada barra = 1 coleta de ${minutos < 60 ? minutos + ' min' : (minutos / 60) + ' h'}`;
 
   document.getElementById('stUptime').textContent = stats.uptimePct != null ? stats.uptimePct + '%' : '—';
   document.getElementById('stUptime').style.color =
@@ -447,7 +462,9 @@ function renderChart(buckets, stats, hours) {
 }
 
 async function loadHistory(ip, hours) {
-  document.getElementById('chartBars').innerHTML = '<i class="nodata" style="flex:1"></i>';
+  const bars = document.getElementById('chartBars');
+  bars.innerHTML = '<i class="nodata" style="flex:1"></i>';
+  bars.dataset.hours = hours;
   try {
     const h = await api(`/api/history/${encodeURIComponent(ip)}?hours=${hours}`);
     const buckets = buildSeries(h.samples, hours, h.step || 1);

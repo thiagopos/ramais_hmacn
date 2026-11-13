@@ -8,7 +8,7 @@ import { expandTargets, DEFAULT_TARGETS } from './config.js';
 import {
   openDb, updateSipIdentity, setPresence, logEvent, registerNewDevice,
   startMonitorRun, finishMonitorRun, insertSample, inventoryRows, createScan, pruneSamples,
-  knownTargets,
+  knownTargets, maybeVacuum,
 } from './lib/db.js';
 
 const MONITOR_SCOPE = 'monitor';
@@ -102,8 +102,10 @@ export async function enrichPhones({
     finishMonitorRun(db, runId, {
       checked: allIps.length, online, offline: rows.length - online, withRamal,
     });
-    const pruned = pruneSamples(db, 90);
-    if (pruned) log(`  (${pruned} amostras antigas removidas — retencao de 90 dias)`);
+    // retencao: 30 dias (com coleta de 15 min isso e ~680 mil linhas)
+    const pruned = pruneSamples(db, 30);
+    if (pruned) log(`  (${pruned} amostras antigas removidas — retencao de 30 dias)`);
+    if (maybeVacuum(db)) log('  (banco compactado: VACUUM)');
 
     log(`\n${c.bold('== Monitoramento (varredura ampla) ==')}`);
     log(`  IPs varridos:   ${allIps.length} (${monitorTargets.join(', ')})`);

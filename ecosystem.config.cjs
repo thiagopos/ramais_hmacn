@@ -46,7 +46,8 @@ module.exports = {
       instances: 1,
       // tarefa pontual: executa e termina; o PM2 acorda de novo no cron
       autorestart: false,
-      cron_restart: '0 * * * *',
+      // 15 em 15 minutos: 96 ciclos/dia (~23 mil amostras/dia com 237 telefones)
+      cron_restart: '*/15 * * * *',
       time: true,
       env: {
         NODE_ENV: 'production',
