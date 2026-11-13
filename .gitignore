@@ -17,6 +17,11 @@ inventario-voip.csv
 inventario-voip.json
 voip-export.*
 *.csv
+ramais-setores.*
+ramais_*
+
+# Planilha de setores + ramais do hospital (dado sensivel de operacao)
+dados/
 
 # Logs de execucao
 logs/
