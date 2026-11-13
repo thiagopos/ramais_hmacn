@@ -402,22 +402,29 @@ f.onload = () => {
       if (btn) btn.click();
       return;
     }
-    // aplica um valor no filtro de status (ex.: ?click=instavel)
-    if (state && d.getElementById('status')) {
-      const sel = d.getElementById('status');
-      if ([...sel.options].some((o) => o.value === state)) {
-        sel.value = state;
-        sel.dispatchEvent(new Event('change'));
-        return;
-      }
-    }
     // abre o drawer: espera as linhas existirem (render e assincrono)
     if (ROW >= 0) {
       let tries = 0;
       const t = setInterval(() => {
         const rows = d.querySelectorAll('#rows tr');
-        if (rows[ROW]) { rows[ROW].click(); clearInterval(t); }
-        else if (++tries > 40) clearInterval(t);
+        if (rows[ROW]) {
+          rows[ROW].click();
+          clearInterval(t);
+          // aplica filtro de status, se foi pedido (?click=instavel)
+          const sel = d.getElementById('status');
+          if (state && sel && [...sel.options].some((o) => o.value === state)) {
+            sel.value = state;
+            sel.dispatchEvent(new Event('change'));
+          }
+          // forca janela do grafico (?click=6|12|24|48|168)
+          const btn = state && d.querySelector(`#rangeSel button[data-h="${state}"]`);
+          if (btn) {
+            btn.click();
+            // marca como ativo na UI para a captura refletir a escolha
+            d.querySelectorAll('#rangeSel button').forEach((x) => x.classList.remove('active'));
+            btn.classList.add('active');
+          }
+        } else if (++tries > 40) clearInterval(t);
       }, 150);
     }
   } catch (e) { /* ignora */ }

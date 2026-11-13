@@ -181,6 +181,11 @@
   .chart-bars i:hover { filter: brightness(1.45); }
   .chart-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 10.5px; color: var(--muted); }
   .chart-gran { margin-top: 2px; font-size: 10.5px; color: var(--muted); text-align: right; opacity: .8; }
+  .chart-line {
+    width: 100%; height: 132px; display: block;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 7px;
+  }
+  .chart-line[hidden] { display: none; }
   .chart-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); }
   .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
@@ -262,8 +267,9 @@
     <h3>Disponibilidade</h3>
     <div class="range-sel" id="rangeSel">
       <button data-h="6">6h</button>
+      <button data-h="12">12h</button>
       <button data-h="24" class="active">24h</button>
-      <button data-h="72">3 dias</button>
+      <button data-h="48">48h</button>
       <button data-h="168">7 dias</button>
     </div>
   </div>
@@ -274,10 +280,11 @@
   </div>
   <div class="chart">
     <div class="chart-bars" id="chartBars"></div>
+    <canvas class="chart-line" id="chartLine" width="560" height="132" hidden></canvas>
     <div class="chart-axis"><span id="axStart">—</span><span id="axMid"></span><span id="axEnd">agora</span></div>
     <div class="chart-gran" id="axGran"></div>
   </div>
-  <div class="chart-legend">
+  <div class="chart-legend" id="chartLegend">
     <span><i style="background:var(--ok)"></i>online</span>
     <span><i style="background:var(--bad)"></i>desaparecido</span>
     <span><i style="background:#262b36"></i>sem coleta</span>
@@ -392,6 +399,14 @@ function fmtHourMin(iso) {
   return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** dd/mm hh:mm — para tooltips e eixos de janelas >= 24h. */
+function fmtMin(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
 /**
  * Monta uma serie no relogio dos ciclos (1 hora), marcando como "sem coleta"
  * os intervalos em que o monitoramento nao rodou.
@@ -426,30 +441,8 @@ function buildSeries(samples, hours, stepHours) {
   return buckets;
 }
 
-function renderChart(buckets, stats, hours) {
-  const bars = document.getElementById('chartBars');
-  bars.innerHTML = buckets.map((b) => {
-    const cls = b.state === 'on' ? '' : b.state === 'off' ? ' off' : ' nodata';
-    const quando = b.sample ? fmtShort(b.sample.created_at) : fmtShort(b.t);
-    const estado = b.state === 'on' ? 'online' : b.state === 'off' ? 'desaparecido' : 'sem coleta';
-    const extra = b.sample?.ramal ? ` · ramal ${b.sample.ramal}` : '';
-    return `<i class="${cls}" title="${quando} — ${estado}${extra}"></i>`;
-  }).join('');
-
-  const first = buckets[0];
-  const last = buckets[buckets.length - 1];
-  // em janelas curtas o horario completo e grande demais: mostra so hh:mm
-  const h = Number(document.getElementById('chartBars').dataset.hours || 24);
-  const fnEixo = h <= 12 ? fmtHourMin : fmtShort;
-  document.getElementById('axStart').textContent = first ? fnEixo(first.t) : '—';
-  document.getElementById('axMid').textContent = buckets.length > 2
-    ? fnEixo(buckets[Math.floor(buckets.length / 2)].t) : '';
-  document.getElementById('axEnd').textContent = last ? fnEixo(last.t) : 'agora';
-  // cada barra vale 1 ciclo: informa a granularidade
-  const minutos = Math.round((stats.step || 1) * 60);
-  document.getElementById('axGran').textContent =
-    `cada barra = 1 coleta de ${minutos < 60 ? minutos + ' min' : (minutos / 60) + ' h'}`;
-
+/** Atualiza os 3 indicadores no topo do painel. */
+function renderStats(stats, granularidade) {
   document.getElementById('stUptime').textContent = stats.uptimePct != null ? stats.uptimePct + '%' : '—';
   document.getElementById('stUptime').style.color =
     stats.uptimePct == null ? '' : stats.uptimePct >= 99 ? 'var(--ok)' : stats.uptimePct >= 90 ? 'var(--warn)' : 'var(--bad)';
@@ -459,16 +452,191 @@ function renderChart(buckets, stats, hours) {
     stats.coveragePct != null ? `${Math.min(100, stats.coveragePct)}%` : `${stats.total}/${stats.expected}`;
   document.getElementById('stCoverage').style.color =
     stats.coveragePct == null ? '' : stats.coveragePct >= 95 ? '' : 'var(--warn)';
+  document.getElementById('axGran').textContent = granularidade;
+}
+
+function renderAxis(inicio, meio, fim, horas) {
+  const fn = horas <= 12 ? fmtHourMin : fmtShort; // 6h/12h: so hh:mm
+  document.getElementById('axStart').textContent = inicio ? fn(inicio) : '—';
+  document.getElementById('axMid').textContent = meio ? fn(meio) : '';
+  document.getElementById('axEnd').textContent = fim ? fn(fim) : 'agora';
+}
+
+/* ---------- modo BARRAS (janelas curtas: 6h e 12h) ---------- */
+function renderBars(buckets, stats, horas) {
+  const bars = document.getElementById('chartBars');
+  bars.innerHTML = buckets.map((b) => {
+    const cls = b.state === 'on' ? '' : b.state === 'off' ? ' off' : ' nodata';
+    const quando = fmtMin(b.sample ? b.sample.created_at : b.t);
+    const estado = b.state === 'on' ? 'online' : b.state === 'off' ? 'desaparecido' : 'sem coleta';
+    return `<i class="${cls}" title="${quando} — ${estado}"></i>`;
+  }).join('');
+
+  const first = buckets[0];
+  const last = buckets[buckets.length - 1];
+  renderAxis(first?.t, buckets.length > 2 ? buckets[Math.floor(buckets.length / 2)].t : null, last?.t, horas);
+
+  const min = Math.round((stats.step || 1) * 60);
+  renderStats(stats, `cada barra = 1 coleta de ${min < 60 ? min + ' min' : min / 60 + ' h'}`);
+
+  document.getElementById('chartLegend').innerHTML = `
+    <span><i style="background:var(--ok)"></i>online</span>
+    <span><i style="background:var(--bad)"></i>desaparecido</span>
+    <span><i style="background:#262b36"></i>sem coleta</span>`;
+}
+
+/**
+ * Modo LINHA (24h, 48h, 7 dias).
+ * Eixo Y = disponibilidade do periodo (100% no topo, 0% embaixo).
+ * Cada ponto e a % de coletas bem-sucedidas naquele bucket de tempo;
+ * trechos sem coleta aparecem como lacuna no traco (nao como queda).
+ */
+function renderLine(samples, stats, horas, stepHours) {
+  const canvas = document.getElementById('chartLine');
+  const dpr = window.devicePixelRatio || 1;
+  const cw = canvas.clientWidth || 560;
+  const chh = 132;
+  canvas.width = Math.round(cw * dpr);
+  canvas.height = Math.round(chh * dpr);
+  canvas.style.height = chh + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, chh);
+
+  // agrupa em N pontos (max ~120 para o traco ficar legivel)
+  const agora = Date.now();
+  const inicio = agora - horas * 3600000;
+  const N = Math.min(120, Math.max(24, horas));
+  const passo = (agora - inicio) / N;
+
+  const soma = new Array(N).fill(0);
+  const cnt = new Array(N).fill(0);
+  for (const s of samples) {
+    const t = new Date(s.created_at).getTime();
+    const idx = Math.floor((t - inicio) / passo);
+    if (idx < 0 || idx >= N) continue;
+    cnt[idx]++;
+    if (s.online === 1) soma[idx]++;
+  }
+  const pontos = soma.map((ok, i) => (cnt[i] > 0 ? (ok / cnt[i]) * 100 : null));
+
+  const padL = 34, padR = 10, padT = 10, padB = 10;
+  const w = cw - padL - padR;
+  const h = chh - padT - padB;
+  const yOf = (pct) => padT + h * (1 - pct / 100);
+  const xOf = (i) => padL + (w * i) / (N - 1);
+
+  // linhas-guia 100% / 50% / 0%
+  ctx.strokeStyle = 'rgba(255,255,255,.07)';
+  ctx.lineWidth = 1;
+  for (const pct of [100, 50, 0]) {
+    const y = yOf(pct);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + w, y); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(139,147,167,.75)';
+  ctx.font = '10px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('100%', padL - 5, yOf(100) + 3);
+  ctx.fillText('50%', padL - 5, yOf(50) + 3);
+  ctx.fillText('0%', padL - 5, yOf(0) + 3);
+  ctx.textAlign = 'left';
+
+  // area + traco, quebrando onde nao ha coleta
+  const segmentos = [];
+  let atual = [];
+  pontos.forEach((p, i) => {
+    if (p === null) { if (atual.length) { segmentos.push(atual); atual = []; } }
+    else atual.push([xOf(i), yOf(p)]);
+  });
+  if (atual.length) segmentos.push(atual);
+
+  const cor = (p) => (p >= 99 ? '#2ecc71' : p >= 90 ? '#f1c40f' : '#e74c3c');
+
+  for (const seg of segmentos) {
+    if (seg.length === 1) {
+      const [x, y] = seg[0];
+      ctx.fillStyle = '#2ecc71';
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+      continue;
+    }
+    // preenchimento suave
+    const media = seg.reduce((a, [, y]) => a + (1 - (y - padT) / h), 0) / seg.length;
+    ctx.beginPath();
+    ctx.moveTo(seg[0][0], padT + h);
+    for (const [x, y] of seg) ctx.lineTo(x, y);
+    ctx.lineTo(seg[seg.length - 1][0], padT + h);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, padT, 0, padT + h);
+    const c = cor(media * 100);
+    g.addColorStop(0, c + '44');
+    g.addColorStop(1, c + '05');
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // traco
+    ctx.beginPath();
+    ctx.moveTo(seg[0][0], seg[0][1]);
+    for (let i = 1; i < seg.length; i++) ctx.lineTo(seg[i][0], seg[i][1]);
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  // marcadores vermelhos nos pontos de queda (disponibilidade < 100)
+  pontos.forEach((p, i) => {
+    if (p === null || p >= 99.999) return;
+    ctx.beginPath();
+    ctx.arc(xOf(i), yOf(p), 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#e74c3c';
+    ctx.fill();
+  });
+
+  // tooltip por posicao do mouse
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const i = Math.round(((x - padL) / w) * (N - 1));
+    if (i < 0 || i >= N) { canvas.title = ''; return; }
+    const tIni = new Date(inicio + i * passo);
+    const p = pontos[i];
+    canvas.title = p === null
+      ? `${fmtMin(tIni.toISOString())} — sem coleta`
+      : `${fmtMin(tIni.toISOString())} — disponibilidade ${p.toFixed(0)}% (${soma[i]}/${cnt[i]} coletas)`;
+  };
+
+  renderAxis(new Date(inicio).toISOString(), new Date(inicio + (agora - inicio) / 2).toISOString(),
+    new Date(agora).toISOString(), horas);
+
+  const min = Math.round(stepHours * 60);
+  const porPonto = Math.round((horas * 60) / N);
+  renderStats(stats, `${min < 60 ? min + ' min' : min / 60 + ' h'} por coleta · cada ponto = ${porPonto} min`);
+
+  document.getElementById('chartLegend').innerHTML = `
+    <span><i style="background:var(--ok)"></i>100%</span>
+    <span><i style="background:var(--warn)"></i>90-99%</span>
+    <span><i style="background:var(--bad)"></i>abaixo de 90%</span>
+    <span style="opacity:.7">lacuna = período sem coleta</span>`;
 }
 
 async function loadHistory(ip, hours) {
   const bars = document.getElementById('chartBars');
-  bars.innerHTML = '<i class="nodata" style="flex:1"></i>';
+  const line = document.getElementById('chartLine');
+  const modoLinha = hours >= 24; // 24h, 48h e 7 dias -> linha
+
+  bars.hidden = modoLinha;
+  line.hidden = !modoLinha;
+  if (!modoLinha) bars.innerHTML = '<i class="nodata" style="flex:1"></i>';
   bars.dataset.hours = hours;
+
   try {
     const h = await api(`/api/history/${encodeURIComponent(ip)}?hours=${hours}`);
-    const buckets = buildSeries(h.samples, hours, h.step || 1);
-    renderChart(buckets, h.stats, hours);
+    if (modoLinha) {
+      renderLine(h.samples, h.stats, hours, h.step || 1);
+    } else {
+      const buckets = buildSeries(h.samples, hours, h.step || 1);
+      renderBars(buckets, h.stats, hours);
+    }
   } catch (e) {
     document.getElementById('chartBars').innerHTML = '';
     document.getElementById('axStart').textContent = 'erro ao carregar';
@@ -485,6 +653,7 @@ document.getElementById('rangeSel').onclick = (e) => {
 };
 
 function openDrawer(r) {
+  window.__drawerRow = r;
   document.getElementById('dRamal').textContent = r.ramal ? `Ramal ${r.ramal}` : 'Sem ramal';
   document.getElementById('dIp').textContent = r.ip;
 
