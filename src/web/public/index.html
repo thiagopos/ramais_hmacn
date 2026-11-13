@@ -266,9 +266,9 @@
   <div class="hist-head">
     <h3>Disponibilidade</h3>
     <div class="range-sel" id="rangeSel">
-      <button data-h="6">6h</button>
+      <button data-h="6" class="active">6h</button>
       <button data-h="12">12h</button>
-      <button data-h="24" class="active">24h</button>
+      <button data-h="24">24h</button>
       <button data-h="48">48h</button>
       <button data-h="168">7 dias</button>
     </div>
@@ -319,10 +319,13 @@ function statusDot(r) {
   return '<span class="dot unk"></span>não verificado';
 }
 
-/** Celula de quedas: 0 = discreto, 1+ = alerta com % de indisponibilidade. */
+/**
+ * Celula de quedas.
+ * Sem historico ou nenhuma queda -> "-" (mesmo padrao das outras colunas).
+ * Com queda -> badge vermelho com o total e o % de indisponibilidade.
+ */
 function quedasCell(r) {
-  if (r.amostras == null) return '<span class="muted" title="sem historico">—</span>';
-  if (!r.quedas) return '<span class="muted">0</span>';
+  if (r.amostras == null || !r.quedas) return '<span class="muted">—</span>';
   const pct = r.pct_indisponivel != null ? `${r.pct_indisponivel}%` : '';
   return `<span class="badge-queda" title="${r.amostras_offline} de ${r.amostras} ciclos sem resposta">${r.quedas}${pct ? `<span class="muted"> · ${pct}</span>` : ''}</span>`;
 }
@@ -347,6 +350,13 @@ function render() {
   rows.sort((a, b) => {
     let x = a[sortKey], y = b[sortKey];
     if (sortKey === 'ramal') { x = x ? +x : Infinity; y = y ? +y : Infinity; }
+    // quedas: "-" (sem queda/sem historico) vai sempre para o fim
+    if (sortKey === 'quedas') {
+      x = x || 0; y = y || 0;
+      if (!x && !y) return 0;
+      if (!x) return 1;
+      if (!y) return -1;
+    }
     if (sortKey === 'ip') {
       const toN = (ip) => ip.split('.').reduce((acc, o) => acc * 256 + +o, 0);
       x = toN(x); y = toN(y);
@@ -387,7 +397,7 @@ function render() {
 
 /* ================= grafico de disponibilidade ================= */
 let currentIp = null;
-let currentHours = 24;
+let currentHours = 6;
 
 function fmtShort(iso) {
   const d = new Date(iso);
