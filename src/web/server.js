@@ -355,78 +355,50 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         if (remote !== '127.0.0.1' && remote !== '::1') return json(res, 404, { error: 'not found' });
         const n = Number(url.searchParams.get('row') ?? -1);
         const click = url.searchParams.get('click') || '';
+        const cfg = JSON.stringify({ row: n, click, pw: pw || '' });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
 <iframe id="f" style="width:1600px;height:880px;border:0"></iframe>
 <script>
-const ROW = ${n};
-const CLICK = ${JSON.stringify(click)};
+const CFG = ${cfg};
 const f = document.getElementById('f');
 async function go() {
-  // garante sessao nesta origem
-  const st = await fetch('/api/stats', { credentials: 'same-origin' });
+  const st = await fetch("/api/stats", { credentials: "same-origin" });
   if (st.status !== 200) {
-    await fetch('/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'password=' + encodeURIComponent(${JSON.stringify(pw || '')}),
-      credentials: 'same-origin',
-      redirect: 'manual',
-    }).catch(() => {});
+    await fetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "password=" + encodeURIComponent(CFG.pw),
+      credentials: "same-origin",
+      redirect: "manual",
+    }).catch(function () {});
   }
-  f.src = '/?t=' + Date.now();
+  f.src = "/?t=" + Date.now();
 }
-f.onload = () => {
+f.onload = function () {
   try {
     const d = f.contentDocument;
-    const state = CLICK;
-    if (state === 'running') {
-      d.defaultView.showStatus('running', 'Monitoramento em andamento', 'varrendo o range completo… 3s');
-      d.defaultView.setRunning(true);
-      return;
-    }
-    if (state === 'ok') {
-      d.defaultView.showStatus('ok', 'Monitoramento concluído', '512 IPs varridos · 236 online · 2.5s');
-      return;
-    }
-    if (state === 'warn') {
-      d.defaultView.showStatus('warn', 'Monitoramento concluído com mudanças', '512 IPs varridos · 236 online · 1 novo(s) · 2.4s — novos: ramal 1234 em 10.0.0.10');
-      return;
-    }
-    if (state === 'err') {
-      d.defaultView.showStatus('err', 'O monitoramento falhou', 'Não foi possível falar com o servidor. Ele pode estar reiniciando — tente novamente em alguns segundos.');
-      return;
-    }
-    if (state === 'monitor') {
-      const btn = d.getElementById('btnMonitor');
-      if (btn) btn.click();
-      return;
-    }
-    // abre o drawer: espera as linhas existirem (render e assincrono)
-    if (ROW >= 0) {
-      let tries = 0;
-      const t = setInterval(() => {
-        const rows = d.querySelectorAll('#rows tr');
-        if (rows[ROW]) {
-          rows[ROW].click();
-          clearInterval(t);
-          // aplica filtro de status, se foi pedido (?click=instavel)
-          const sel = d.getElementById('status');
-          if (state && sel && [...sel.options].some((o) => o.value === state)) {
-            sel.value = state;
-            sel.dispatchEvent(new Event('change'));
-          }
-          // forca janela do grafico (?click=6|12|24|48|168)
-          const btn = state && d.querySelector(`#rangeSel button[data-h="${state}"]`);
-          if (btn) {
-            btn.click();
-            // marca como ativo na UI para a captura refletir a escolha
-            d.querySelectorAll('#rangeSel button').forEach((x) => x.classList.remove('active'));
-            btn.classList.add('active');
-          }
-        } else if (++tries > 40) clearInterval(t);
-      }, 150);
-    }
+    const state = CFG.click;
+    if (CFG.row < 0) return;
+    let tries = 0;
+    const t = setInterval(function () {
+      const rows = d.querySelectorAll('#rows tr');
+      if (rows[CFG.row]) {
+        rows[CFG.row].click();
+        clearInterval(t);
+        const sel = d.getElementById("status");
+        if (state && sel && Array.from(sel.options).some(function (o) { return o.value === state; })) {
+          sel.value = state;
+          sel.dispatchEvent(new Event("change"));
+        }
+        const btn = state ? d.querySelector('#rangeSel button[data-h="' + state + '"]') : null;
+        if (btn) {
+          btn.click();
+          Array.from(d.querySelectorAll("#rangeSel button")).forEach(function (x) { x.classList.remove("active"); });
+          btn.classList.add("active");
+        }
+      } else if (++tries > 40) clearInterval(t);
+    }, 150);
   } catch (e) { /* ignora */ }
 };
 go();
