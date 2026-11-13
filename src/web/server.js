@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { openDb, inventoryRows, knownTargets } from '../lib/db.js';
+import { openDb, inventoryRows, knownTargets, setoresResumo } from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
@@ -143,17 +143,28 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
       if (route === '/api/phones' && req.method === 'GET') {
         const db = openDb(dbPath);
         let rows = inventoryRows(db);
+        const setores = setoresResumo(db);
         db.close();
         const q = (url.searchParams.get('q') || '').toLowerCase().trim();
         const status = url.searchParams.get('status') || '';
+        const setor = url.searchParams.get('setor') || '';
         if (q) {
           rows = rows.filter((r) =>
-            [r.ip, r.ramal, r.mac, r.model, r.hostname, r.serial, r.firmware]
+            [r.ip, r.ramal, r.mac, r.model, r.hostname, r.serial, r.firmware, r.setores, r.andares, r.alas]
               .filter(Boolean).some((v) => String(v).toLowerCase().includes(q)));
         }
         if (status === 'online') rows = rows.filter((r) => r.online === 1);
         if (status === 'offline') rows = rows.filter((r) => r.online === 0);
         if (status === 'sem-ramal') rows = rows.filter((r) => !r.ramal);
+        if (status === 'sem-setor') rows = rows.filter((r) => !r.qtd_setores);
+        if (setor) rows = rows.filter((r) => (r.setores || '').split(' | ').includes(setor));
+        return json(res, 200, { count: rows.length, rows, setores });
+      }
+
+      if (route === '/api/setores' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = setoresResumo(db);
+        db.close();
         return json(res, 200, { count: rows.length, rows });
       }
 

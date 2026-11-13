@@ -56,7 +56,15 @@ const insRamal = db.prepare(
 const now = new Date().toISOString();
 let setores = 0;
 let vinculos = 0;
+let repetidos = 0;
 const avisos = [];
+
+// Reaproveita o setor quando a linha for identica (setor+andar+predio+ala).
+// Assim "2263 | Berçário Multi | 3º Andar" duas vezes vira 1 vinculo com ocorrencias=2.
+const findSetor = db.prepare(
+  `SELECT id FROM setores WHERE setor = ? AND IFNULL(andar,'') = IFNULL(?,'')
+     AND IFNULL(predio,'') = IFNULL(?,'') AND IFNULL(ala,'') = IFNULL(?,'') LIMIT 1`,
+);
 
 db.exec('BEGIN');
 for (let i = 1; i < lines.length; i++) {
@@ -70,10 +78,18 @@ for (let i = 1; i < lines.length; i++) {
   const alaRaw = (f[col.ala] || '').trim();
   const ala = !alaRaw || /^null$/i.test(alaRaw) ? null : alaRaw;
 
-  const info = insSetor.run(setor, andar, predio, ala, now);
-  const setorId = Number(info.lastInsertRowid);
-  setores++;
+  // setor ja existe com os mesmos atributos? reaproveita (linha repetida)
+  const existente = findSetor.get(setor, andar, predio, ala);
+  let setorId;
+  if (existente) {
+    setorId = existente.id;
+  } else {
+    const info = insSetor.run(setor, andar, predio, ala, now);
+    setorId = Number(info.lastInsertRowid);
+    setores++;
+  }
 
+  // um setor pode listar varios ramais; um ramal pode estar em varios setores
   for (const bruto of ramaisRaw.split(',')) {
     const r = bruto.trim();
     if (!r) continue;
@@ -81,15 +97,23 @@ for (let i = 1; i < lines.length; i++) {
       avisos.push(`linha ${i + 1}: ramal "${r}" nao tem 4 digitos (setor: ${setor})`);
       continue;
     }
-    insRamal.run(setorId, r, i + 1);
-    vinculos++;
+    const ja = db.prepare(`SELECT id FROM setor_ramais WHERE setor_id = ? AND ramal_curto = ?`).get(setorId, r);
+    if (ja) {
+      // mesma linha repetida: só incrementa a contagem
+      db.prepare(`UPDATE setor_ramais SET ocorrencias = ocorrencias + 1 WHERE id = ?`).run(ja.id);
+      repetidos++;
+    } else {
+      insRamal.run(setorId, r, i + 1);
+      vinculos++;
+    }
   }
 }
 db.exec('COMMIT');
 
 db.close();
 
-console.log(`\nimportado: ${setores} setores, ${vinculos} vinculos ramal->setor`);
+console.log(`\nimportado: ${setores} setores distintos, ${vinculos} vinculos ramal->setor`);
+console.log(`repetidos consolidados: ${repetidos}`);
 if (avisos.length) {
   console.log(`\n${avisos.length} aviso(s):`);
   for (const a of avisos) console.log('  ' + a);

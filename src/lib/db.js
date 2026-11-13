@@ -359,14 +359,59 @@ export function knownTargets(db) {
   return [...set];
 }
 
-/** Inventario para a interface web, ja com ramal. */
+/** Inventario para a interface web, ja com ramal e setores. */
 export function inventoryRows(db) {
+  // usa LEFT JOIN com as tabelas de setores (podem nao existir ainda)
+  const temSetores = db.prepare(
+    `SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='setor_ramais'`,
+  ).get().c > 0;
+
+  if (!temSetores) {
+    return db.prepare(
+      `SELECT ip, mac, hostname, vendor, model, device_type, ramal, firmware, serial,
+              sip_ua, http_server, ports_json, tls_json, first_seen, last_seen,
+              online, missing_since,
+              NULL AS setores, NULL AS qtd_setores, NULL AS andares, NULL AS alas
+       FROM devices
+       WHERE is_phone = 1
+       ORDER BY CAST(ramal AS INTEGER) IS NULL, CAST(ramal AS INTEGER), ip`,
+    ).all();
+  }
+
   return db.prepare(
-    `SELECT ip, mac, hostname, vendor, model, device_type, ramal, firmware, serial,
-            sip_ua, http_server, ports_json, tls_json, first_seen, last_seen,
-            online, missing_since
-     FROM devices
-     WHERE is_phone = 1
-     ORDER BY CAST(ramal AS INTEGER) IS NULL, CAST(ramal AS INTEGER), ip`,
+    `SELECT d.ip, d.mac, d.hostname, d.vendor, d.model, d.device_type, d.ramal, d.firmware,
+            d.serial, d.sip_ua, d.http_server, d.ports_json, d.tls_json, d.first_seen,
+            d.last_seen, d.online, d.missing_since,
+            (SELECT GROUP_CONCAT(s.setor, ' | ')
+               FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
+              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS setores,
+            (SELECT COUNT(*)
+               FROM setor_ramais sr
+              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS qtd_setores,
+            (SELECT GROUP_CONCAT(IFNULL(s.andar, ''), ' | ')
+               FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
+              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS andares,
+            (SELECT GROUP_CONCAT(IFNULL(s.ala, ''), ' | ')
+               FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
+              WHERE sr.ramal_curto = substr(d.ramal, 3))               AS alas
+     FROM devices d
+     WHERE d.is_phone = 1
+     ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
+  ).all();
+}
+
+/** Lista de setores distintos com contagem de ramais e telefones. */
+export function setoresResumo(db) {
+  const tem = db.prepare(
+    `SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='setores'`,
+  ).get().c > 0;
+  if (!tem) return [];
+  return db.prepare(
+    `SELECT s.setor, s.andar, s.predio, s.ala,
+            COUNT(DISTINCT sr.ramal_curto) AS ramais
+     FROM setores s
+     LEFT JOIN setor_ramais sr ON sr.setor_id = s.id
+     GROUP BY s.id
+     ORDER BY s.setor`,
   ).all();
 }

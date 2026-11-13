@@ -116,6 +116,12 @@
   .dot.off { background: var(--bad); box-shadow: 0 0 7px rgba(231,76,60,.6); }
   .dot.unk { background: var(--muted); }
   .st-missing { color: var(--bad); font-weight: 600; }
+  .setor-cell { max-width: 300px; white-space: normal; }
+  .setor-tag {
+    display: inline-block; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--muted); border-radius: 5px; padding: 1px 7px; font-size: 12px;
+    margin: 1px 3px 1px 0;
+  }
   .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
   td.serial { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
   .muted { color: var(--muted); }
@@ -205,12 +211,16 @@
 </div>
 
 <div class="controls">
-  <input type="search" id="q" placeholder="Buscar por ramal, IP, MAC, modelo ou serial…">
+  <input type="search" id="q" placeholder="Buscar por ramal, setor, IP, MAC, modelo ou serial…">
   <select id="status">
     <option value="">Todos</option>
     <option value="online">Somente online</option>
     <option value="offline">Somente offline</option>
     <option value="sem-ramal">Sem ramal</option>
+    <option value="sem-setor">Sem setor cadastrado</option>
+  </select>
+  <select id="setor">
+    <option value="">Todos os setores</option>
   </select>
   <span class="muted" id="count"></span>
 </div>
@@ -221,6 +231,7 @@
       <tr>
         <th data-k="online">Status <span class="arw"></span></th>
         <th data-k="ramal">Ramal <span class="arw"></span></th>
+        <th data-k="setores">Setor <span class="arw"></span></th>
         <th data-k="ip">IP <span class="arw"></span></th>
         <th data-k="model">Modelo <span class="arw"></span></th>
         <th data-k="serial">Serial <span class="arw"></span></th>
@@ -292,12 +303,15 @@ function statusDot(r) {
 function render() {
   const q = document.getElementById('q').value.toLowerCase().trim();
   const st = document.getElementById('status').value;
+  const setorSel = document.getElementById('setor').value;
   let rows = all.filter((r) => {
-    if (q && ![r.ip, r.ramal, r.mac, r.model, r.hostname, r.serial, r.firmware].filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (q && ![r.ip, r.ramal, r.mac, r.model, r.hostname, r.serial, r.firmware, r.setores, r.andares, r.alas]
+      .filter(Boolean).some((v) => String(v).toLowerCase().includes(q))) return false;
     if (st === 'online' && r.online !== 1) return false;
     if (st === 'offline' && r.online !== 0) return false;
     if (st === 'sem-ramal' && r.ramal) return false;
+    if (st === 'sem-setor' && r.qtd_setores) return false;
+    if (setorSel && !(r.setores || '').split(' | ').includes(setorSel)) return false;
     return true;
   });
 
@@ -321,6 +335,11 @@ function render() {
     <tr data-i="${i}">
       <td>${statusDot(r)}</td>
       <td class="ramal">${r.ramal || '<span class="muted">—</span>'}</td>
+      <td class="setor-cell" title="${r.setores || ''}${r.andares ? ' — ' + r.andares : ''}">
+        ${r.setores
+          ? r.setores.split(' | ').map((s) => `<span class="setor-tag">${s}</span>`).join('')
+          : '<span class="muted">—</span>'}
+      </td>
       <td class="mono">${r.ip}</td>
       <td>${r.model || '—'}</td>
       <td class="mono muted serial" title="${r.serial || ''}">${r.serial || '—'}</td>
@@ -431,14 +450,27 @@ document.getElementById('rangeSel').onclick = (e) => {
 function openDrawer(r) {
   document.getElementById('dRamal').textContent = r.ramal ? `Ramal ${r.ramal}` : 'Sem ramal';
   document.getElementById('dIp').textContent = r.ip;
+
+  // setores: um ramal pode estar em varios
+  const partes = (r.setores || '').split(' | ');
+  const andares = (r.andares || '').split(' | ');
+  const alas = (r.alas || '').split(' | ');
+  const setorHtml = r.setores
+    ? partes.map((s, i) => {
+        const extra = [andares[i], alas[i]].filter((x) => x && x !== '').join(' · ');
+        return `<div style="margin-bottom:4px">${s}${extra ? ` <span class="muted" style="font-size:12px">(${extra})</span>` : ''}</div>`;
+      }).join('')
+    : '<span class="muted">não cadastrado na planilha</span>';
+
   const d = document.getElementById('details');
   d.innerHTML = [
+    ['Setor', setorHtml],
     ['Modelo', r.model], ['Firmware', r.firmware], ['Serial', r.serial],
     ['MAC', r.mac], ['User-Agent SIP', r.sip_ua], ['Servidor HTTP', r.http_server],
     ['Portas', (() => { try { return JSON.parse(r.ports_json).join(', '); } catch { return '—'; } })()],
     ['Primeiro visto', fmt(r.first_seen)], ['Último contato', fmt(r.last_seen)],
     ...(r.online === 0 ? [['Desaparecido desde', fmt(r.missing_since)]] : []),
-  ].map(([k, v]) => `<dt>${k}</dt><dd>${v || '—'}</dd>`).join('');
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null ? '—' : v}</dd>`).join('');
   document.getElementById('drawer').classList.add('open');
 
   currentIp = r.ip;
@@ -456,6 +488,7 @@ document.querySelectorAll('th').forEach((th) => {
 });
 document.getElementById('q').oninput = render;
 document.getElementById('status').onchange = render;
+document.getElementById('setor').onchange = render;
 
 /* ================= status do monitoramento ================= */
 const SB = {
@@ -564,6 +597,15 @@ async function load() {
     document.getElementById('subtitle').textContent = 'rede ' + scope.targets.join(' + ');
   }
   all = phones.rows;
+
+  // preenche o filtro de setores (mantendo a selecao atual)
+  const selSetor = document.getElementById('setor');
+  const atual = selSetor.value;
+  const nomes = [...new Set((phones.setores || []).map((s) => s.setor))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  selSetor.innerHTML = '<option value="">Todos os setores</option>' +
+    nomes.map((n) => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('');
+  if (nomes.includes(atual)) selSetor.value = atual;
+
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="n">${stats.total}</div><div class="l">Telefones</div></div>
     <div class="card ok"><div class="n">${stats.online}</div><div class="l">Online</div></div>

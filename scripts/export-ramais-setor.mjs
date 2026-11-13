@@ -1,6 +1,10 @@
 /**
- * Gera o relatorio ramal x setor (CSV e JSON) a partir do banco.
- * Uso: node scripts/export-ramais-setor.mjs [--db voip.sqlite]
+ * Gera o relatorio ramal x setor a partir das views do banco.
+ *
+ * Dois formatos:
+ *  - ramais-setores.csv   : uma linha por (telefone x setor). Ramal em 2 setores
+ *                           aparece 2x, com os mesmos dados de equipamento.
+ *  - ramais-setores.json  : uma linha por telefone, com array "setores".
  */
 import fs from 'node:fs';
 import { openDb } from '../src/lib/db.js';
@@ -9,60 +13,61 @@ const dbPath = process.argv[2] || 'voip.sqlite';
 const db = openDb(dbPath);
 const all = (s, ...p) => db.prepare(s).all(...p);
 
-const devs = all(
-  `SELECT ip, ramal, mac, model, firmware, online, missing_since, last_seen
-   FROM devices WHERE is_phone = 1 ORDER BY CAST(ramal AS INTEGER), ip`,
+// ---- CSV: uma linha por telefone x setor (view ja faz o produto) ----
+const rows = all(
+  `SELECT ramal, setor, andar, predio, ala, ip, mac, model, firmware,
+          online, missing_since, last_seen, ocorrencias
+   FROM v_ramal_setor
+   ORDER BY CAST(ramal AS INTEGER), ip, setor`,
 );
 
-const rows = [];
-for (const d of devs) {
-  const curto = (d.ramal || '').replace(/^(40|41)/, '');
-  const setores = curto
-    ? all(
-        `SELECT s.setor, s.andar, s.predio, s.ala, sr.linha_origem
-         FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
-         WHERE sr.ramal_curto = ? ORDER BY sr.id`,
-        curto,
-      )
-    : [];
+const campos = ['ramal', 'setor', 'andar', 'predio', 'ala', 'ip', 'mac', 'model',
+  'firmware', 'status', 'missing_since', 'last_seen', 'observacao'];
 
-  if (setores.length === 0) {
-    rows.push({
-      ...d,
-      setor: null, andar: null, predio: null, ala: null,
-      observacao: d.ramal ? 'ramal nao consta na planilha de setores' : 'aparelho sem conta SIP (sem ramal)',
-    });
-  } else {
-    for (const s of setores) {
-      rows.push({
-        ...d,
-        setor: s.setor,
-        andar: s.andar,
-        predio: s.predio,
-        ala: s.ala,
-        observacao: setores.length > 1 ? `ramal em ${setores.length} setores na planilha` : null,
-      });
-    }
-  }
-}
-
-// CSV
-const campos = ['ramal', 'setor', 'andar', 'predio', 'ala', 'ip', 'mac', 'model', 'firmware',
-  'status', 'missing_since', 'last_seen', 'observacao'];
 const esc = (v) => (v == null ? '' : /[",\n;]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+const statusDe = (r) => (r.online === 1 ? 'online' : r.online === 0 ? 'desaparecido' : 'nao verificado');
+const observacaoDe = (r) => {
+  if (!r.ramal) return 'aparelho sem conta SIP (sem ramal)';
+  if (!r.setor) return 'ramal nao consta na planilha de setores';
+  if (r.ocorrencias > 1) return `linha repetida ${r.ocorrencias}x na planilha`;
+  return '';
+};
+
 const linhas = [campos.join(';')];
 for (const r of rows) {
-  linhas.push(campos.map((c) => esc(r[c === 'status' ? null : c] ?? (c === 'status' ? (r.online === 1 ? 'online' : r.online === 0 ? 'desaparecido' : 'nao verificado') : null))).join(';'));
+  linhas.push([
+    r.ramal, r.setor, r.andar, r.predio, r.ala, r.ip, r.mac, r.model, r.firmware,
+    statusDe(r), r.missing_since, r.last_seen, observacaoDe(r),
+  ].map(esc).join(';'));
 }
+
 // CSV com BOM UTF-8 para o Excel em portugues abrir com acentos corretos
 fs.writeFileSync('ramais-setores.csv', '\uFEFF' + linhas.join('\r\n') + '\r\n', 'utf8');
 
-// JSON
-fs.writeFileSync('ramais-setores.json', JSON.stringify(rows, null, 2), 'utf8');
+// ---- JSON: uma entrada por telefone, com todos os setores ----
+const devs = all(
+  `SELECT ip, ramal, mac, model, firmware, online, missing_since, last_seen, first_seen, qtd_setores
+   FROM v_device_setores ORDER BY CAST(ramal AS INTEGER), ip`,
+);
+const porIp = new Map();
+for (const r of rows) {
+  if (!porIp.has(r.ip)) porIp.set(r.ip, []);
+  if (r.setor) {
+    porIp.get(r.ip).push({ setor: r.setor, andar: r.andar, predio: r.predio, ala: r.ala, ocorrencias: r.ocorrencias });
+  }
+}
 
-const comSetor = new Set(rows.filter((r) => r.setor).map((r) => r.ramal));
+const json = devs.map((d) => ({
+  ...d,
+  status: statusDe(d),
+  setores: porIp.get(d.ip) || [],
+}));
+fs.writeFileSync('ramais-setores.json', JSON.stringify(json, null, 2), 'utf8');
+
+const comSetor = devs.filter((d) => d.qtd_setores > 0).length;
+const multi = devs.filter((d) => d.qtd_setores > 1).length;
 console.log(`\nrelatorio gerado:`);
-console.log(`  ramais-setores.csv   (${rows.length} linhas)`);
-console.log(`  ramais-setores.json  (${rows.length} registros)`);
-console.log(`  telefones com setor: ${comSetor.size}`);
+console.log(`  ramais-setores.csv   (${rows.length} linhas = telefone x setor)`);
+console.log(`  ramais-setores.json  (${json.length} telefones)`);
+console.log(`  com setor: ${comSetor} | em 2+ setores: ${multi} | sem setor: ${devs.length - comSetor}`);
 db.close();
