@@ -64,7 +64,7 @@ const cookie = (login.headers['set-cookie']?.[0] || '').split(';')[0];
 const GZ = { 'Accept-Encoding': 'gzip, deflate, br' };
 
 const res = {
-  label: CASE.label,
+  label: CASE.label || 'compare',
   at: new Date().toISOString(),
   host: `${HOST}:${PORT}`,
   metrics: {},
@@ -131,6 +131,21 @@ res.metrics.concurrency = {
 };
 console.log(`  individuais: ${conc.map((x) => Math.round(x.ms)).join(', ')} ms`);
 console.log(`  wall total : ${wall} ms  ${res.metrics.concurrency.serialized ? '(serializado — bloqueia)' : '(concorrente)'}`);
+
+// ---------------- recarga com revalidacao (304) ----------------
+console.log('\n--- recarga do navegador (If-None-Match -> 304) ---');
+for (const [key, p] of [['phones', '/api/phones'], ['stats', '/api/stats'], ['html', '/']]) {
+  const first = await req('GET', p, { cookie, headers: GZ });
+  const etag = first.headers.etag;
+  if (!etag) {
+    console.log(`  ${p.padEnd(22)} sem ETag (nao revalida)`);
+    continue;
+  }
+  const ms304 = await med(() => req('GET', p, { cookie, headers: { ...GZ, 'If-None-Match': etag } }), 5);
+  const r304 = await req('GET', p, { cookie, headers: { ...GZ, 'If-None-Match': etag } });
+  res.metrics[key + 'Warm'] = { ms: Math.round(ms304), bytes: r304.bytes, status: r304.status };
+  console.log(`  ${p.padEnd(22)} ${String(Math.round(ms304)).padStart(6)} ms  status ${r304.status}  ${r304.bytes} B`);
+}
 
 // ---------------- veredito ----------------
 const nota = blocoMediana <= 50 ? 'EXCELENTE' : blocoMediana <= 300 ? 'BOM' : blocoMediana <= 1000 ? 'ACEITAVEL' : 'RUIM';

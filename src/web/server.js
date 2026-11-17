@@ -14,6 +14,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
@@ -38,10 +39,59 @@ const MIME = {
   '.png': 'image/png',
 };
 
-function json(res, code, obj) {
-  const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+/**
+ * Resposta JSON com compressao e revalidacao por ETag.
+ *
+ * - gzip quando o cliente aceita e o corpo passa de 1 KB
+ * - ETag forte (sha1 do corpo + encoding): o navegador revalida e recebe
+ *   304 sem corpo quando nada mudou
+ * - Cache-Control: no-cache permite guardar, mas obriga revalidar
+ *   (o dado muda a cada ciclo de monitoramento, nunca servimos velho)
+ */
+function json(req, res, code, obj) {
+  const body = Buffer.from(JSON.stringify(obj), 'utf8');
+  sendBody(req, res, code, body, 'application/json; charset=utf-8');
+}
+
+/** Envia um corpo aplicando gzip + ETag/304. */
+function sendBody(req, res, code, rawBody, contentType, { maxAge = null } = {}) {
+  const aceitaGzip = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  const comprime = aceitaGzip && rawBody.length >= 1024;
+
+  let body = rawBody;
+  const headers = {
+    'Content-Type': contentType,
+    Vary: 'Accept-Encoding',
+  };
+
+  if (comprime) {
+    body = zlib.gzipSync(rawBody, { level: 6 });
+    headers['Content-Encoding'] = 'gzip';
+  }
+
+  // ETag inclui o encoding: o mesmo recurso comprimido e sem comprimir tem tags distintas
+  headers.ETag = `"${crypto.createHash('sha1').update(body).digest('base64url').slice(0, 27)}"`;
+  headers['Cache-Control'] = maxAge == null ? 'no-cache' : `public, max-age=${maxAge}`;
+
+  // revalidacao: se o cliente ja tem esta versao, 304 sem corpo
+  const inm = req.headers['if-none-match'];
+  if (inm && inm.split(',').map((s) => s.trim()).includes(headers.ETag)) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+
+  headers['Content-Length'] = body.length;
+  res.writeHead(code, headers);
   res.end(body);
+}
+
+/** Arquivo estatico: gzip + ETag por conteudo + revalidacao. */
+function sendFile(req, res, filePath) {
+  const ext = path.extname(filePath);
+  const tipo = MIME[ext] || 'application/octet-stream';
+  const raw = fs.readFileSync(filePath);
+  sendBody(req, res, 200, raw, tipo, { maxAge: 0 });
 }
 
 /** Autenticacao por tela de login + cookie de sessao (ver auth.js). */
@@ -98,7 +148,7 @@ function makeAuth(password) {
       if (cookies[SESSION_COOKIE_NAME] && safeToken(cookies[SESSION_COOKIE_NAME], token)) return false;
 
       if (route.startsWith('/api/')) {
-        json(res, 401, { error: 'nao autenticado' });
+        json(req, res, 401, { error: 'nao autenticado' });
       } else {
         res.writeHead(302, { Location: '/login' });
         res.end();
@@ -180,14 +230,14 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         }
         if (status === 'estavel') rows = rows.filter((r) => r.em_instabilidade !== 1);
         if (setor) rows = rows.filter((r) => (r.setores || '').split(' | ').includes(setor));
-        return json(res, 200, { count: rows.length, rows, setores });
+        return json(req, res, 200, { count: rows.length, rows, setores });
       }
 
       if (route === '/api/setores' && req.method === 'GET') {
         const db = openDb(dbPath);
         const rows = setoresResumo(db);
         db.close();
-        return json(res, 200, { count: rows.length, rows });
+        return json(req, res, 200, { count: rows.length, rows });
       }
 
       // ---- edicao de setores ----
@@ -197,7 +247,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const rows = listarSetores(db);
         db.close();
-        return json(res, 200, { rows });
+        return json(req, res, 200, { rows });
       }
 
       // setores vinculados a um ramal
@@ -206,7 +256,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const rows = setoresDoRamal(db, ramal);
         db.close();
-        return json(res, 200, { ramal, rows });
+        return json(req, res, 200, { ramal, rows });
       }
 
       // vincula (existente ou novo setor)
@@ -215,8 +265,8 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const r = vincularSetor(db, { ...body, fonte: 'manual' });
         db.close();
-        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
-        return json(res, 200, { ok: true, ...r });
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true, ...r });
       }
 
       // remove vinculo
@@ -225,8 +275,8 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const r = desvincularSetor(db, body);
         db.close();
-        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
-        return json(res, 200, { ok: true });
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
       }
 
       // edita os dados de um setor (nome/andar/predio/ala)
@@ -235,8 +285,8 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const r = editarSetor(db, body);
         db.close();
-        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
-        return json(res, 200, { ok: true, semMudanca: r.semMudanca });
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true, semMudanca: r.semMudanca });
       }
 
       // ---- historico de quedas (episodios) ----
@@ -247,7 +297,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const rows = listarQuedas(db, { ip, horas });
         const resumo = ip ? resumoQuedas(db, ip) : null;
         db.close();
-        return json(res, 200, { count: rows.length, rows, resumo });
+        return json(req, res, 200, { count: rows.length, rows, resumo });
       }
 
       if (route === '/api/stats' && req.method === 'GET') {
@@ -269,7 +319,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
           ultimoScan: db.prepare(`SELECT finished_at, hosts_alive, phones_found FROM scans WHERE targets NOT LIKE '%monitor%' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1`).get() || null,
         };
         db.close();
-        return json(res, 200, stats);
+        return json(req, res, 200, stats);
       }
 
       if (route === '/api/desaparecidos' && req.method === 'GET') {
@@ -279,7 +329,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
            FROM devices WHERE is_phone=1 AND online=0 ORDER BY missing_since DESC`,
         ).all();
         db.close();
-        return json(res, 200, { count: rows.length, rows });
+        return json(req, res, 200, { count: rows.length, rows });
       }
 
       if (route === '/api/events' && req.method === 'GET') {
@@ -292,7 +342,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
            ORDER BY e.id DESC LIMIT ?`,
         ).all(limit);
         db.close();
-        return json(res, 200, { events: rows });
+        return json(req, res, 200, { events: rows });
       }
 
       if (route.startsWith('/api/history/') && req.method === 'GET') {
@@ -353,7 +403,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         // esperado = quantas coletas cabem na janela (~1 por ciclo)
         const expected = Math.max(1, Math.floor(hours / step));
 
-        return json(res, 200, {
+        return json(req, res, 200, {
           ip,
           hours,
           step,
@@ -375,12 +425,12 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const rows = db.prepare(`SELECT * FROM monitor_runs ORDER BY id DESC LIMIT 20`).all();
         db.close();
-        return json(res, 200, { runs: rows });
+        return json(req, res, 200, { runs: rows });
       }
 
       // estado atual do monitoramento (a UI consulta ao abrir/recarregar)
       if (route === '/api/monitor/status' && req.method === 'GET') {
-        return json(res, 200, {
+        return json(req, res, 200, {
           running: mon.running,
           startedAt: mon.startedAt,
           elapsedMs: mon.running ? Date.now() - new Date(mon.startedAt).getTime() : null,
@@ -392,7 +442,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
       if (route === '/api/monitor' && req.method === 'POST') {
         // impede execucao concorrente: se ja esta rodando, devolve o estado
         if (mon.running) {
-          return json(res, 409, {
+          return json(req, res, 409, {
             error: 'Já existe um monitoramento em andamento.',
             running: true,
             startedAt: mon.startedAt,
@@ -405,11 +455,11 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         try {
           const r = await enrichPhones({ dbPath, verbose: false, monitor: true });
           mon.lastResult = { finishedAt: new Date().toISOString(), ...r };
-          return json(res, 200, { ...r, durationMs: Date.now() - t0 });
+          return json(req, res, 200, { ...r, durationMs: Date.now() - t0 });
         } catch (err) {
           mon.lastError = { at: new Date().toISOString(), message: err.message };
           console.log(`[monitor] ERRO: ${err.message}`);
-          return json(res, 500, {
+          return json(req, res, 500, {
             error: err.message,
             hint: 'Falha ao executar o monitoramento. Veja logs/server.log para detalhes.',
           });
@@ -423,13 +473,13 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const db = openDb(dbPath);
         const scopes = knownTargets(db);
         db.close();
-        return json(res, 200, { targets: scopes.length ? scopes : DEFAULT_TARGETS });
+        return json(req, res, 200, { targets: scopes.length ? scopes : DEFAULT_TARGETS });
       }
 
       // harness de teste visual: SO de localhost (contornaria o login)
       if (route === '/__test') {
         const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-        if (remote !== '127.0.0.1' && remote !== '::1') return json(res, 404, { error: 'not found' });
+        if (remote !== '127.0.0.1' && remote !== '::1') return json(req, res, 404, { error: 'not found' });
         const n = Number(url.searchParams.get('row') ?? -1);
         const click = url.searchParams.get('click') || '';
         const cfg = JSON.stringify({ row: n, click, pw: pw || '' });
@@ -509,12 +559,11 @@ go();
 
       // estaticos
       let filePath = route === '/' ? path.join(PUBLIC, 'index.html') : path.join(PUBLIC, route);
-      if (!filePath.startsWith(PUBLIC)) return json(res, 403, { error: 'forbidden' });
-      if (!fs.existsSync(filePath)) return json(res, 404, { error: 'not found' });
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
-      fs.createReadStream(filePath).pipe(res);
+      if (!filePath.startsWith(PUBLIC)) return json(req, res, 403, { error: 'forbidden' });
+      if (!fs.existsSync(filePath)) return json(req, res, 404, { error: 'not found' });
+      return sendFile(req, res, filePath);
     } catch (err) {
-      json(res, 500, { error: err.message });
+      json(req, res, 500, { error: err.message });
     }
   });
 
