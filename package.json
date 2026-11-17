@@ -20,7 +20,8 @@
     "export": "node src/index.js export",
     "server": "node scripts/supervisor.mjs",
     "bench": "node scripts/bench.mjs",
-    "rebuild-stats": "node scripts/rebuild-stats.mjs"
+    "rebuild-stats": "node scripts/rebuild-stats.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "keywords": [
     "voip",

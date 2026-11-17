@@ -22,6 +22,7 @@ import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
   listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
   listarQuedas, resumoQuedas, inventarioDetalhe, fecharConexoes,
+  statsProntas, refreshStats,
 } from '../lib/db.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
@@ -192,7 +193,21 @@ async function readJsonBody(req, limit = 64 * 1024) {
 
 export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1', password } = {}) {
   // garante schema
-  openDb(dbPath).close();
+  const dbBoot = openDb(dbPath);
+
+  // Cache materializado vazio (banco restaurado de backup ou primeiro uso):
+  // constroi agora, senao a interface mostraria tudo zerado ate o proximo
+  // ciclo de monitoramento. Custa ~0,9s UMA vez, no startup.
+  if (!statsProntas(dbBoot)) {
+    const amostras = dbBoot.prepare('SELECT COUNT(*) c FROM monitor_samples').get().c;
+    if (amostras > 0) {
+      const t0 = Date.now();
+      const r = refreshStats(dbBoot);
+      console.log(`[${new Date().toISOString()}] cache de estatisticas reconstruido: ` +
+        `${r.devices} dispositivos, ${r.episodios} episodios em ${Date.now() - t0} ms`);
+    }
+  }
+
   const pw = password || process.env.VOIP_WEB_PASS;
   const auth = makeAuth(pw);
 
