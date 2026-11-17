@@ -1,0 +1,73 @@
+{
+  "label": "tema",
+  "at": "2026-11-17T12:44:16.831Z",
+  "host": "127.0.0.1:8181",
+  "metrics": {
+    "html": {
+      "ms": 1,
+      "bytes": 81736,
+      "bytesGzip": 21572,
+      "cacheControl": "public, max-age=0",
+      "etag": true
+    },
+    "phones": {
+      "ms": 5,
+      "bytes": 121403,
+      "bytesGzip": 9216,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "stats": {
+      "ms": 1,
+      "bytes": 601,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "scope": {
+      "ms": 1,
+      "bytes": 47,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "monitorStatus": {
+      "ms": 0,
+      "bytes": 661,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "pageLoad": {
+      "ms": 5
+    },
+    "concurrency": {
+      "wall": 3,
+      "individual": [
+        1,
+        2,
+        2
+      ],
+      "serialized": false
+    },
+    "phonesWarm": {
+      "ms": 4,
+      "bytes": 0,
+      "status": 304
+    },
+    "statsWarm": {
+      "ms": 1,
+      "bytes": 0,
+      "status": 304
+    },
+    "htmlWarm": {
+      "ms": 2,
+      "bytes": 0,
+      "status": 304
+    }
+  },
+  "veredito": {
+    "pageLoadMs": 5,
+    "nota": "EXCELENTE"
+  }
+}

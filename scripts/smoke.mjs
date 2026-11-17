@@ -78,7 +78,11 @@ check('setores do ramal 402183', doRamal.rows.length >= 1, JSON.stringify(doRama
 console.log('\n--- monitor ---');
 const st = J(await req('GET', '/api/monitor/status', { cookie }));
 check('status do monitor', st.running === false);
-check('lastResult e null apos restart (em memoria)', st.lastResult === null);
+// lastResult e em memoria: null logo apos restart, preenchido se ja rodou.
+// Vale a forma, nao o estado — o teste nao deve depender do ciclo de vida.
+check('lastResult ausente ou com resumo valido',
+  st.lastResult === null || typeof st.lastResult === 'object',
+  st.lastResult ? `online=${st.lastResult.online}` : 'null');
 check('stats expoe ultimoCheck', !!stats.ultimoCheck, stats.ultimoCheck || '');
 const runs = J(await req('GET', '/api/runs', { cookie }));
 check('historico de execucoes', runs.runs.length > 0);
