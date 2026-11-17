@@ -206,7 +206,32 @@ SQLite via `node:sqlite`.
 | `events` | `new`, `disappeared`, `ramal_changed`, `ports_opened`, `ports_closed` |
 | `monitor_runs` | ciclos de monitoramento |
 | `monitor_samples` | uptime por IP por ciclo (retenção de 30 dias) |
+| `device_stats` | **cache** das métricas de estabilidade (1 linha por IP) |
+| `drop_episodes` | **cache** dos episódios de queda (caiu → voltou) |
+| `meta` | `schema_version`, `stats_at` (última atualização do cache) |
 | `v_phones` (view) | atalho para o inventário de telefones |
+| `v_estabilidade` (view) | regra de estabilidade (window functions) |
+| `v_quedas` (view) | regra dos episódios de queda |
+
+### Cache materializado
+
+As views `v_estabilidade` e `v_quedas` agregam 100 mil+ amostras com window
+functions e custam ~650 ms e ~500 ms **por avaliação**. Uma página da interface
+disparava 6 avaliações — daí os ~4 s de carregamento.
+
+O resultado é calculado **uma vez por ciclo de monitoramento** e gravado em
+`device_stats` e `drop_episodes` (`refreshStats()`, em transação única). A
+leitura passa a ser O(1) e não cresce com o histórico.
+
+As views continuam sendo a **fonte única da regra**: o cache é populado com
+`INSERT ... SELECT FROM v_...`. Se a regra mudar, só a view muda.
+
+```bash
+node scripts/rebuild-stats.mjs    # reconstrói o cache (migração/correção)
+```
+
+`SCHEMA_VERSION` (em `src/lib/db.js`) controla a migração: suba o número ao
+alterar `migrate()` e o banco é atualizado na próxima abertura.
 
 Consultas úteis:
 
@@ -217,9 +242,33 @@ SELECT ramal, ip, model, firmware, serial FROM v_phones ORDER BY CAST(ramal AS I
 -- quem desapareceu
 SELECT ramal, ip, missing_since FROM devices WHERE is_phone=1 AND online=0;
 
+-- estabilidade (leitura instantânea do cache)
+SELECT d.ramal, s.quedas, s.pct_indisponivel FROM device_stats s
+  JOIN devices d ON d.ip = s.ip WHERE s.em_instabilidade=1 ORDER BY s.pct_indisponivel DESC;
+
 -- mudanças recentes
 SELECT created_at, ip, event, detail FROM events ORDER BY id DESC LIMIT 20;
 ```
+
+### Desempenho
+
+`node scripts/bench.mjs <rótulo>` mede cada endpoint e o carregamento da página,
+salvando em `benchmarks/<rótulo>.json`. Compare dois momentos com
+`node scripts/bench.mjs --compare antes depois`.
+
+Evolução medida com 101 mil amostras e 249 telefones:
+
+| Etapa | Carregamento | `/api/stats` | `/api/phones` |
+|---|---|---|---|
+| Original | 5200 ms | 3998 ms | 716 ms (297 KB) |
+| Cache materializado | 42 ms | 13 ms | 16 ms |
+| + gzip / ETag / 304 | 44 ms | 14 ms | 19 ms (30 KB gzip) |
+| + payload enxuto | 41 ms | 15 ms | 17 ms (119 KB / 9 KB gzip) |
+| + conexão reaproveitada | **4 ms** | **1 ms** | **3 ms** |
+
+Recarga com `If-None-Match` devolve **304 sem corpo**. `POST /api/monitor`
+responde em 18 ms e roda em processo filho, então a varredura não bloqueia a
+interface.
 
 ---
 
@@ -267,6 +316,8 @@ src/
     auth.js         tela de login + sessão por cookie
     public/index.html  painel de monitoramento
 scripts/
+  bench.mjs         benchmark reproduzível (endpoints + carregamento)
+  rebuild-stats.mjs reconstrói o cache de estatísticas
   supervisor.mjs    mantém o servidor no ar (relança se cair)
   run-server.mjs    runner com log em arquivo e rotação
   watchdog.cmd      relança o supervisor se a porta estiver fora
