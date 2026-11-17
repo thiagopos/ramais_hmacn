@@ -542,10 +542,13 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         if (remote !== '127.0.0.1' && remote !== '::1') return json(req, res, 404, { error: 'not found' });
         const n = Number(url.searchParams.get('row') ?? -1);
         const click = url.searchParams.get('click') || '';
-        const cfg = JSON.stringify({ row: n, click, pw: pw || '' });
+        // filtros repassados ao iframe: ?filtro=status%3Doffline
+        const filtro = url.searchParams.get('filtro') ? '&' + url.searchParams.get('filtro') : '';
+        const altura = Number(url.searchParams.get('h') || 880);
+        const cfg = JSON.stringify({ row: n, click, pw: pw || '', filtro });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
-<iframe id="f" style="width:1600px;height:880px;border:0"></iframe>
+<iframe id="f" style="width:1600px;height:${altura}px;border:0"></iframe>
 <script>
 const CFG = ${cfg};
 const f = document.getElementById('f');
@@ -560,7 +563,7 @@ async function go() {
       redirect: "manual",
     }).catch(function () {});
   }
-  f.src = "/?t=" + Date.now();
+  f.src = "/?t=" + Date.now() + CFG.filtro;
 }
 f.onload = function () {
   try {

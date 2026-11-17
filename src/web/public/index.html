@@ -99,9 +99,9 @@
   }
   button:hover { filter: brightness(1.1); }
   button:disabled { opacity: .55; cursor: not-allowed; }
-  .wrap { padding: 0 22px 40px; }
+  .wrap { padding: 0 28px 40px; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
-  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
   th {
     background: var(--panel2); color: var(--muted); font-size: 11.5px; text-transform: uppercase;
     letter-spacing: .05em; cursor: pointer; user-select: none;
@@ -110,12 +110,34 @@
   th .arw { opacity: .5; font-size: 10px; }
   tbody tr:hover { background: #1b1f28; }
   tbody tr { cursor: pointer; }
+  tbody tr:last-child td { border-bottom: 0; }
   .ramal { font-weight: 650; color: var(--accent); font-variant-numeric: tabular-nums; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
   .dot.on { background: var(--ok); box-shadow: 0 0 7px var(--ok); }
   .dot.off { background: var(--bad); box-shadow: 0 0 7px rgba(231,76,60,.6); }
   .dot.unk { background: var(--muted); }
   .st-missing { color: var(--bad); font-weight: 600; }
+
+  /* ---- status como icone ---- */
+  .th-status { width: 58px; }
+  .td-status { width: 58px; text-align: center; padding-left: 0; padding-right: 0; }
+  .dot-lg {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 1px solid transparent; vertical-align: middle;
+  }
+  .dot-lg svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .dot-lg.on  { color: var(--ok);   background: rgba(46,204,113,.12); border-color: rgba(46,204,113,.35); }
+  .dot-lg.off { color: var(--bad);  background: rgba(231,76,60,.13);  border-color: rgba(231,76,60,.42); }
+  .dot-lg.unk { color: var(--muted); background: rgba(148,163,184,.10); border-color: rgba(148,163,184,.28); }
+
+  /* ---- badge de modelo ---- */
+  .badge-modelo {
+    display: inline-block; padding: 2px 9px; border-radius: 6px; font-size: 11.5px;
+    font-weight: 600; letter-spacing: .02em;
+    background: rgba(79,140,255,.10); border: 1px solid rgba(79,140,255,.28); color: #9fc0ff;
+  }
 
   /* ---- skeleton (placeholder animado) ---- */
   .skel {
@@ -137,6 +159,11 @@
     color: #ff8b7e; border-radius: 20px; padding: 1px 8px; font-size: 12px; font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
+  /* queda com indisponibilidade baixa (<2%): amarelo, nao vermelho */
+  .badge-queda.baixa {
+    background: rgba(241,196,15,.13); border-color: rgba(241,196,15,.42); color: #f5cd53;
+  }
+  .badge-queda .pct { opacity: .85; }
   .card.warn .n { color: var(--warn); }
   .setor-cell { max-width: 300px; white-space: normal; }
   .setor-tag {
@@ -159,11 +186,58 @@
     box-shadow: -20px 0 60px rgba(0,0,0,.5);
   }
   #drawer.open { transform: translateX(0); }
-  #drawer h2 { margin: 0 0 4px; font-size: 20px; }
+  #drawer h2 { margin: 0 0 4px; font-size: 20px; padding-right: 84px; }
   #drawer dl { display: grid; grid-template-columns: 130px 1fr; gap: 8px 14px; margin: 18px 0; }
   #drawer dt { color: var(--muted); font-size: 12.5px; }
   #drawer dd { margin: 0; word-break: break-all; }
   #close { position: absolute; top: 16px; right: 16px; background: var(--panel2); border: 1px solid var(--line); padding: 5px 11px; border-radius: 7px; }
+
+  /* ---- blocos do painel (setor / estabilidade) ---- */
+  .dsec { margin-top: 18px; }
+  .dsec:first-of-type { margin-top: 20px; }
+  .dsec-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    min-height: 26px; margin-bottom: 8px;
+  }
+  .dsec-title {
+    font-size: 11.5px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .06em; font-weight: 600;
+  }
+  .dsec-acao {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 7px; padding: 4px 10px; font-size: 11.5px; font-weight: 550;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .dsec-acao svg {
+    width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .dsec-acao:hover { color: var(--text); border-color: #3a4150; background: #1e222b; }
+  .dsec-body { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px; }
+
+  /* chips de setor no painel */
+  .dchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dchip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    background: #15181f; border: 1px solid var(--line); border-radius: 7px;
+    padding: 4px 10px; font-size: 12.5px;
+  }
+  .dchip small { color: var(--muted); font-size: 11px; }
+
+  /* metricas de estabilidade em tres colunas */
+  .estab { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .estab .em .v {
+    font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.15;
+  }
+  .estab .em .k {
+    font-size: 10.5px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; margin-top: 2px;
+  }
+  .estab .em.ok .v { color: var(--ok); }
+  .estab .em.warn .v { color: var(--warn); }
+  .estab .em.bad .v { color: var(--bad); }
+  .estab .em .v small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 2px; }
 
   /* ---- gráfico de disponibilidade ---- */
   .hist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 22px 0 10px; }
@@ -320,11 +394,6 @@
   }
   .btn-primary:hover { filter: brightness(1.1); }
   .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-  .btn-edit-setor {
-    background: transparent; border: 1px solid var(--line); color: var(--accent);
-    border-radius: 6px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; margin-left: 6px;
-  }
-  .btn-edit-setor:hover { background: rgba(79,140,255,.12); border-color: var(--accent); }
 
   /* ---- historico de quedas ---- */
   .modal-wide { width: min(720px, 100%); }
@@ -419,19 +488,16 @@
   <table>
     <thead>
       <tr>
-        <th data-k="online">Status <span class="arw"></span></th>
+        <th data-k="online" class="th-status">Status <span class="arw"></span></th>
         <th data-k="ramal">Ramal <span class="arw"></span></th>
         <th data-k="setores">Setor <span class="arw"></span></th>
         <th data-k="quedas">Quedas <span class="arw"></span></th>
         <th data-k="ip">IP <span class="arw"></span></th>
         <th data-k="model">Modelo <span class="arw"></span></th>
-        <th data-k="serial">Serial <span class="arw"></span></th>
-        <th data-k="firmware">Firmware <span class="arw"></span></th>
-        <th data-k="mac">MAC <span class="arw"></span></th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td colspan="9" style="padding:0"><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span></td></tr>
+      <tr><td colspan="6" style="padding:0"><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span><span class="skel-linha"></span></td></tr>
     </tbody>
   </table>
   <div class="empty" id="empty" hidden>Nenhum aparelho encontrado.</div>
@@ -441,6 +507,33 @@
   <button id="close">Fechar</button>
   <h2 id="dRamal">—</h2>
   <div class="muted" id="dIp"></div>
+
+  <!-- setor: chips + acao de editar alinhada a direita -->
+  <section class="dsec">
+    <header class="dsec-head">
+      <span class="dsec-title">Setor</span>
+      <button class="dsec-acao" id="btnEditSetor" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <span>Editar</span>
+      </button>
+    </header>
+    <div class="dsec-body" id="dSetores"></div>
+  </section>
+
+  <!-- estabilidade: metricas curtas + acao de historico -->
+  <section class="dsec">
+    <header class="dsec-head">
+      <span class="dsec-title">Estabilidade</span>
+      <button class="dsec-acao" id="btnQuedas" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-5 4 4 8-8"/><path d="M16 4h4v4"/></svg>
+        <span>Histórico</span>
+      </button>
+    </header>
+    <div class="dsec-body">
+      <div class="estab" id="dEstab"></div>
+    </div>
+  </section>
+
   <div class="hist-head">
     <h3>Disponibilidade</h3>
     <div class="range-sel" id="rangeSel">
@@ -611,24 +704,40 @@ function fmt(iso) {
   });
 }
 
+/**
+ * Status apenas como icone (sem texto), com o estado no title/tooltip.
+ * O texto continua disponivel para leitores de tela via aria-label.
+ */
 function statusDot(r) {
   if (r.online === 0) {
     const when = r.missing_since ? ' desde ' + fmt(r.missing_since) : '';
-    return `<span class="dot off"></span><span class="st-missing" title="offline${when}">offline</span>`;
+    return `<span class="dot-lg off" title="Offline${when}" aria-label="Offline">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+    </span>`;
   }
-  if (r.online === 1) return '<span class="dot on"></span>online';
-  return '<span class="dot unk"></span>não verificado';
+  if (r.online === 1) {
+    return `<span class="dot-lg on" title="Online" aria-label="Online">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+    </span>`;
+  }
+  return `<span class="dot-lg unk" title="Não verificado" aria-label="Não verificado">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>
+  </span>`;
 }
 
 /**
  * Celula de quedas.
  * Sem historico ou nenhuma queda -> "-" (mesmo padrao das outras colunas).
- * Com queda -> badge vermelho com o total e o % de indisponibilidade.
+ * Com queda -> badge; vermelho quando o % de indisponibilidade e
+ * relevante (>= 2%), amarelo quando e baixo.
  */
 function quedasCell(r) {
   if (r.amostras == null || !r.quedas) return '<span class="muted">—</span>';
   const pct = r.pct_indisponivel != null ? `${r.pct_indisponivel}%` : '';
-  return `<span class="badge-queda" title="${r.amostras_offline} de ${r.amostras} ciclos sem resposta">${r.quedas}${pct ? `<span class="muted"> · ${pct}</span>` : ''}</span>`;
+  const baixo = (r.pct_indisponivel ?? 0) < 2;
+  const classe = baixo ? 'badge-queda baixa' : 'badge-queda';
+  const titulo = `${r.amostras_offline} de ${r.amostras} ciclos sem resposta`;
+  return `<span class="${classe}" title="${titulo}">${r.quedas}${pct ? `<span class="pct"> · ${pct}</span>` : ''}</span>`;
 }
 
 function render() {
@@ -680,7 +789,7 @@ function render() {
 
   document.getElementById('rows').innerHTML = rows.map((r, i) => `
     <tr data-i="${i}">
-      <td>${statusDot(r)}</td>
+      <td class="td-status">${statusDot(r)}</td>
       <td class="ramal">${r.ramal || '<span class="muted">—</span>'}</td>
       <td class="setor-cell" title="${r.setores || ''}${r.andares ? ' — ' + r.andares : ''}">
         ${r.setores
@@ -689,10 +798,7 @@ function render() {
       </td>
       <td>${quedasCell(r)}</td>
       <td class="mono">${r.ip}</td>
-      <td>${r.model || '—'}</td>
-      <td class="mono muted serial" title="${r.serial || ''}">${r.serial || '—'}</td>
-      <td class="mono">${r.firmware || '—'}</td>
-      <td class="mono muted">${r.mac || '—'}</td>
+      <td>${r.model ? `<span class="badge-modelo">${r.model}</span>` : '<span class="muted">—</span>'}</td>
     </tr>`).join('');
 
   document.getElementById('count').textContent = `${rows.length} de ${all.length} aparelhos`;
@@ -981,50 +1087,66 @@ function openDrawer(r) {
   document.getElementById('dRamal').textContent = r.ramal ? `Ramal ${r.ramal}` : 'Sem ramal';
   document.getElementById('dIp').textContent = r.ip;
 
-  // setores: um ramal pode estar em varios
+  /* ---- bloco SETOR: chips + botao de editar ---- */
   const partes = (r.setores || '').split(' | ');
   const andares = (r.andares || '').split(' | ');
   const alas = (r.alas || '').split(' | ');
-  const setorHtml = (r.setores
-    ? partes.map((s, i) => {
+  document.getElementById('dSetores').innerHTML = r.setores
+    ? `<div class="dchips">${partes.map((s, i) => {
         const extra = [andares[i], alas[i]].filter((x) => x && x !== '').join(' · ');
-        return `<div style="margin-bottom:4px">${s}${extra ? ` <span class="muted" style="font-size:12px">(${extra})</span>` : ''}</div>`;
-      }).join('')
-    : '<span class="muted">não cadastrado</span>')
-    + (r.ramal
-        ? `<button class="btn-edit-setor" id="btnEditSetor">${r.setores ? 'Editar' : 'Adicionar setor'}</button>`
-        : '');
+        return `<span class="dchip">${s}${extra ? `<small>${extra}</small>` : ''}</span>`;
+      }).join('')}</div>`
+    : '<span class="muted" style="font-size:12.5px">Nenhum setor cadastrado para este ramal.</span>';
 
-  const d = document.getElementById('details');
-  const estab = (r.amostras == null
-    ? '<span class="muted">sem histórico coletado</span>'
-    : (r.quedas > 0
-        ? `<span class="badge-queda">${r.quedas} queda(s)</span> <span class="muted">· indisponível em ${r.pct_indisponivel}% dos ciclos (${r.amostras_offline}/${r.amostras})</span>`
-        : `<span style="color:var(--ok)">estável</span> <span class="muted">· ${r.amostras} ciclos sem falha</span>`))
-    + `<button class="btn-edit-setor" id="btnQuedas">Histórico</button>`;
+  const btnEdit = document.getElementById('btnEditSetor');
+  btnEdit.hidden = !r.ramal;
+  if (r.ramal) {
+    btnEdit.querySelector('span').textContent = r.setores ? 'Editar' : 'Adicionar';
+    btnEdit.onclick = () => smAbrir(r.ramal);
+  }
 
-  // pinta imediatamente o que ja veio na listagem; o resto vem sob demanda
+  /* ---- bloco ESTABILIDADE: tres metricas + botao de historico ---- */
+  const semHistorico = r.amostras == null;
+  const quedas = r.quedas || 0;
+  const pct = r.pct_indisponivel;
+  const baixa = (pct ?? 0) < 2;
+
+  const classeQuedas = semHistorico ? '' : quedas === 0 ? 'ok' : baixa ? 'warn' : 'bad';
+  const classePct = semHistorico ? '' : baixa ? 'warn' : 'bad';
+
+  document.getElementById('dEstab').innerHTML = semHistorico
+    ? `<div class="em" style="grid-column:1/-1"><div class="v" style="font-size:12.5px;font-weight:400;color:var(--muted)">Sem histórico coletado ainda.</div></div>`
+    : `
+      <div class="em ${classeQuedas}">
+        <div class="v">${quedas}</div><div class="k">Quedas</div>
+      </div>
+      <div class="em ${classePct}">
+        <div class="v">${pct != null ? pct : '—'}<small>%</small></div>
+        <div class="k">Indisponível</div>
+      </div>
+      <div class="em">
+        <div class="v">${r.amostras_offline ?? 0}<small>/${r.amostras}</small></div>
+        <div class="k">Ciclos offline</div>
+      </div>`;
+
+  const btnQuedas = document.getElementById('btnQuedas');
+  btnQuedas.hidden = semHistorico;
+  btnQuedas.onclick = () => qdAbrir(r.ip, r.ramal);
+
+  /* ---- ficha tecnica: sem setor/estabilidade, que agora tem bloco proprio ---- */
   const campos = [
-    ['Setor', setorHtml],
-    ['Estabilidade', estab],
     ['Modelo', r.model], ['Firmware', r.firmware], ['Serial', r.serial], ['MAC', r.mac],
     ['User-Agent SIP', SKEL], ['Servidor HTTP', SKEL], ['Portas', SKEL],
     ['Primeiro visto', SKEL], ['Último contato', SKEL],
     ...(r.online === 0 ? [['Offline desde', fmt(r.missing_since)]] : []),
   ];
-  d.innerHTML = campos
-    .map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null ? '—' : v}</dd>`).join('');
+  document.getElementById('details').innerHTML = campos
+    .map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null || v === '' ? '—' : v}</dd>`).join('');
 
   document.getElementById('drawer').classList.add('open');
 
   // carrega a ficha completa em paralelo com o grafico
   carregarDetalhe(r.ip);
-
-  const btnEdit = document.getElementById('btnEditSetor');
-  if (btnEdit) btnEdit.onclick = () => smAbrir(r.ramal);
-
-  const btnQuedas = document.getElementById('btnQuedas');
-  if (btnQuedas) btnQuedas.onclick = () => qdAbrir(r.ip, r.ramal);
 
   currentIp = r.ip;
   loadHistory(r.ip, currentHours);
@@ -1595,6 +1717,12 @@ async function load() {
   selSetor.innerHTML = '<option value="">Todos os setores</option>' +
     nomes.map((n) => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('');
   if (nomes.includes(atual)) selSetor.value = atual;
+  // setor pedido pela URL (?setor=...) so pode ser aplicado depois da lista
+  if (selSetor.dataset.pendente) {
+    const alvo = selSetor.dataset.pendente;
+    delete selSetor.dataset.pendente;
+    if (nomes.includes(alvo)) selSetor.value = alvo;
+  }
 
   const est = stats.estabilidade || {};
   document.getElementById('cards').innerHTML = `
@@ -1668,6 +1796,26 @@ function pollUntilDone() {
   }, 1200);
 }
 
+/**
+ * Aplica filtros vindos da URL (?status=offline&setor=UTI&q=4020).
+ * Serve para compartilhar uma visao especifica por link.
+ */
+function aplicarFiltrosDaUrl() {
+  const p = new URLSearchParams(location.search);
+  const status = p.get('status');
+  const setor = p.get('setor');
+  const busca = p.get('q');
+
+  if (status) {
+    const sel = document.getElementById('status');
+    if ([...sel.options].some((o) => o.value === status)) sel.value = status;
+  }
+  if (busca) document.getElementById('q').value = busca;
+  // o <option> do setor so existe depois de carregar a lista: guarda para depois
+  if (setor) document.getElementById('setor').dataset.pendente = setor;
+}
+
+aplicarFiltrosDaUrl();
 load();
 </script>
 </body>
