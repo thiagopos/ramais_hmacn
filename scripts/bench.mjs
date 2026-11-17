@@ -155,9 +155,13 @@ console.log(`\n>>> carregamento: ${blocoMediana} ms — ${nota}\n`);
 // ---------------- salvar ----------------
 const dir = path.resolve('benchmarks');
 fs.mkdirSync(dir, { recursive: true });
-const file = path.join(dir, `${CASE.label}.json`);
-fs.writeFileSync(file, JSON.stringify(res, null, 2));
-console.log(`salvo em ${file}`);
+if (!CASE.compare) {
+  const file = path.join(dir, `${CASE.label}.json`);
+  fs.writeFileSync(file, JSON.stringify(res, null, 2));
+  console.log(`salvo em ${file}`);
+} else {
+  console.log('(modo comparativo: nao salvou resultado)');
+}
 
 // ---------------- comparar ----------------
 if (CASE.compare) {

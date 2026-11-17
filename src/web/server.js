@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
   listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
-  listarQuedas, resumoQuedas,
+  listarQuedas, resumoQuedas, inventarioDetalhe,
 } from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
@@ -206,6 +206,17 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
     }
 
     try {
+      // ficha completa de um aparelho (carregada ao abrir o painel lateral)
+      if (route.startsWith('/api/phones/') && req.method === 'GET') {
+        const ip = decodeURIComponent(route.slice('/api/phones/'.length));
+        const db = openDb(dbPath);
+        const det = inventarioDetalhe(db, ip);
+        const setores = det ? setoresDoRamal(db, det.ramal) : [];
+        db.close();
+        if (!det) return json(req, res, 404, { error: 'aparelho nao encontrado' });
+        return json(req, res, 200, { ...det, setores_vinculados: setores });
+      }
+
       if (route === '/api/phones' && req.method === 'GET') {
         const db = openDb(dbPath);
         let rows = inventoryRows(db);

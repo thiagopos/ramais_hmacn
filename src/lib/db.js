@@ -613,7 +613,14 @@ export function knownTargets(db) {
   return [...set];
 }
 
-/** Inventario para a interface web, ja com ramal e setores. */
+/**
+ * Inventario ENXUTO para a listagem da interface.
+ *
+ * Deixa de fora o que so a ficha do aparelho usa (tls_json, sip_ua,
+ * ports_json, first_seen, last_seen, hostname) — tls_json sozinho
+ * respondia por 62% do payload antigo (91 KB de 145 KB).
+ * O detalhe vem sob demanda em inventarioDetalhe().
+ */
 export function inventoryRows(db) {
   // usa LEFT JOIN com as tabelas de setores (podem nao existir ainda)
   const temSetores = db.prepare(
@@ -622,9 +629,8 @@ export function inventoryRows(db) {
 
   if (!temSetores) {
     return db.prepare(
-      `SELECT d.ip, d.mac, d.hostname, d.vendor, d.model, d.device_type, d.ramal, d.firmware,
-              d.serial, d.sip_ua, d.http_server, d.ports_json, d.tls_json, d.first_seen,
-              d.last_seen, d.online, d.missing_since,
+      `SELECT d.ip, d.mac, d.model, d.ramal, d.firmware, d.serial,
+              d.online, d.missing_since,
               NULL AS setores, NULL AS qtd_setores, NULL AS andares, NULL AS alas,
               e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
               e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
@@ -636,9 +642,8 @@ export function inventoryRows(db) {
   }
 
   return db.prepare(
-    `SELECT d.ip, d.mac, d.hostname, d.vendor, d.model, d.device_type, d.ramal, d.firmware,
-            d.serial, d.sip_ua, d.http_server, d.ports_json, d.tls_json, d.first_seen,
-            d.last_seen, d.online, d.missing_since,
+    `SELECT d.ip, d.mac, d.model, d.ramal, d.firmware, d.serial,
+            d.online, d.missing_since,
             (SELECT GROUP_CONCAT(s.setor, ' | ')
                FROM setor_ramais sr JOIN setores s ON s.id = sr.setor_id
               WHERE sr.ramal_curto = substr(d.ramal, 3))               AS setores,
@@ -657,6 +662,27 @@ export function inventoryRows(db) {
      LEFT JOIN device_stats e ON e.ip = d.ip
      WHERE d.is_phone = 1
      ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
+  ).all();
+}
+
+/** Ficha completa de um aparelho (carregada ao abrir o painel lateral). */
+export function inventarioDetalhe(db, ip) {
+  return db.prepare(
+    `SELECT d.ip, d.mac, d.hostname, d.vendor, d.model, d.device_type, d.ramal,
+            d.firmware, d.serial, d.sip_ua, d.http_server, d.ports_json,
+            d.first_seen, d.last_seen, d.online, d.missing_since,
+            e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
+            e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
+     FROM devices d
+     LEFT JOIN device_stats e ON e.ip = d.ip
+     WHERE d.ip = ?`,
+  ).get(ip) || null;
+}
+
+/** Lista minima para o monitoramento (nao precisa de nada de apresentacao). */
+export function devicesParaMonitor(db) {
+  return db.prepare(
+    `SELECT ip, ramal, mac, online, last_seen FROM devices WHERE is_phone = 1 ORDER BY ip`,
   ).all();
 }
 

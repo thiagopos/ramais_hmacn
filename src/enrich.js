@@ -8,7 +8,7 @@ import { expandTargets, DEFAULT_TARGETS } from './config.js';
 import {
   openDb, updateSipIdentity, setPresence, logEvent, registerNewDevice,
   startMonitorRun, finishMonitorRun, insertSample, inventoryRows, createScan, pruneSamples,
-  knownTargets, maybeVacuum, refreshStats,
+  knownTargets, maybeVacuum, refreshStats, devicesParaMonitor,
 } from './lib/db.js';
 
 const MONITOR_SCOPE = 'monitor';
@@ -38,7 +38,7 @@ export async function enrichPhones({
 } = {}) {
   const log = verbose ? (...a) => console.log(...a) : () => {};
   const db = openDb(dbPath);
-  const rows = inventoryRows(db);
+  const rows = devicesParaMonitor(db);
   const t0 = Date.now();
 
   // escopo da varredura: argumento > ranges de scans anteriores > padrao
@@ -165,7 +165,7 @@ export async function enrichPhones({
 /** Lista ramal -> ip para conferir rapido. */
 export function printRamais(dbPath = 'voip.sqlite') {
   const db = openDb(dbPath);
-  for (const r of inventoryRows(db)) {
+  for (const r of devicesParaMonitor(db)) {
     console.log(`${String(r.ramal || '-').padEnd(8)} ${r.ip.padEnd(15)} ${(r.model || '-').padEnd(16)} ${r.firmware || '-'}`);
   }
   db.close();
