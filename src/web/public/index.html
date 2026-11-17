@@ -1523,31 +1523,56 @@ async function runMonitor() {
       return;
     }
 
-    const partes = [];
-    if (data.scanned) partes.push(`${data.scanned} IPs varridos`);
-    partes.push(`${data.online} online`);
-    if (data.novos?.length) partes.push(`${data.novos.length} novo(s)`);
-    if (data.desaparecidos?.length) partes.push(`${data.desaparecidos.length} offline`);
-
-    const tipo = (data.novos?.length || data.desaparecidos?.length) ? 'warn' : 'ok';
-    const titulo = tipo === 'warn' ? 'Monitoramento concluído com mudanças' : 'Monitoramento concluído';
-    const segs = data.durationMs != null ? (data.durationMs / 1000).toFixed(1) : null;
-    const detalhe = partes.join(' · ') + (segs ? ` · ${segs}s` : '');
-
-    if (data.novos?.length) {
-      const lista = data.novos.map((n) => `ramal ${n.ramal || '?'} em ${n.ip}`).join(', ');
-      showStatus(tipo, titulo, `${detalhe} — novos: ${lista}`);
-    } else if (data.desaparecidos?.length) {
-      const lista = data.desaparecidos.map((d) => `ramal ${d.ramal || '?'} (${d.ip})`).join(', ');
-      showStatus(tipo, titulo, `${detalhe} — sumiram: ${lista}`);
-    } else {
-      showStatus(tipo, titulo, detalhe);
+    // 202 = varredura iniciada em segundo plano (processo separado).
+    // O servidor nao bloqueia; acompanhamos por polling e o resultado
+    // e mostrado quando terminar.
+    if (res.status === 202 || data.started) {
+      showStatus('running', 'Monitoramento em andamento',
+        'varrendo o range completo — pode continuar usando a tela');
+      pollUntilDone(true);
+      return;
     }
+
+    mostrarResultadoMonitor(data);
   } catch (err) {
     showStatus('err', 'O monitoramento falhou', describeError(err));
   } finally {
-    setRunning(false);
-    await load();
+    if (!(await monitorAindaRodando())) {
+      setRunning(false);
+      await load();
+    }
+  }
+}
+
+/** Monta a mensagem final a partir do resumo da varredura. */
+function mostrarResultadoMonitor(data) {
+  const partes = [];
+  if (data.scanned) partes.push(`${data.scanned} IPs varridos`);
+  if (data.online != null) partes.push(`${data.online} online`);
+  if (data.novos?.length) partes.push(`${data.novos.length} novo(s)`);
+  if (data.desaparecidos?.length) partes.push(`${data.desaparecidos.length} offline`);
+
+  const tipo = (data.novos?.length || data.desaparecidos?.length) ? 'warn' : 'ok';
+  const titulo = tipo === 'warn' ? 'Monitoramento concluído com mudanças' : 'Monitoramento concluído';
+  const detalhe = partes.join(' · ');
+
+  if (data.novos?.length) {
+    const lista = data.novos.map((n) => `ramal ${n.ramal || '?'} em ${n.ip}`).join(', ');
+    showStatus(tipo, titulo, `${detalhe} — novos: ${lista}`);
+  } else if (data.desaparecidos?.length) {
+    const lista = data.desaparecidos.map((d) => `ramal ${d.ramal || '?'} (${d.ip})`).join(', ');
+    showStatus(tipo, titulo, `${detalhe} — offline: ${lista}`);
+  } else {
+    showStatus(tipo, titulo, detalhe);
+  }
+}
+
+async function monitorAindaRodando() {
+  try {
+    const st = await api('/api/monitor/status');
+    return !!st.running;
+  } catch {
+    return false;
   }
 }
 
@@ -1626,6 +1651,15 @@ function pollUntilDone() {
         SB.detail.textContent = `iniciado há ${secs}s — aguarde, atualiza sozinho`;
         pollUntilDone();
       } else {
+        // terminou: mostra o resumo que o servidor guardou e recarrega
+        setRunning(false);
+        if (st.lastError) {
+          showStatus('err', 'O monitoramento falhou', st.lastError.message);
+        } else if (st.lastResult) {
+          mostrarResultadoMonitor(st.lastResult);
+        } else {
+          hideStatus();
+        }
         await load();
       }
     } catch {

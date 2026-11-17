@@ -12,16 +12,17 @@
  */
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
   listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
   listarQuedas, resumoQuedas, inventarioDetalhe, fecharConexoes,
 } from '../lib/db.js';
-import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
   LOGIN_PAGE, SESSION_COOKIE_NAME, checkPassword, clearSessionCookie,
@@ -30,6 +31,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
+/** Raiz do projeto: usada para disparar a varredura em processo filho. */
+const RAIZ = path.resolve(__dirname, '..', '..');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -462,22 +465,53 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         mon.running = true;
         mon.startedAt = new Date().toISOString();
         mon.lastError = null;
-        const t0 = Date.now();
-        try {
-          const r = await enrichPhones({ dbPath, verbose: false, monitor: true });
-          mon.lastResult = { finishedAt: new Date().toISOString(), ...r };
-          return json(req, res, 200, { ...r, durationMs: Date.now() - t0 });
-        } catch (err) {
+        mon.progresso = null;
+
+        // Roda em PROCESSO SEPARADO.
+        // O recalculo do cache de estatisticas e sincrono (~0,5-1,2s) e
+        // travaria o event loop, congelando a interface de todos os
+        // usuarios. Como filho, o servidor segue respondendo em ~2ms.
+        // O resultado volta por arquivo temporario (stdio fica 'ignore'
+        // para nao depender de pipe, que e bloqueado em alguns ambientes).
+        const tmpResultado = path.join(os.tmpdir(), `voip-monitor-${process.pid}-${Date.now()}.json`);
+        const filho = spawn(process.execPath, [
+          path.join(RAIZ, 'src', 'index.js'),
+          'enrich', '--monitor',
+          '--result-file', tmpResultado,
+          '--db', path.resolve(dbPath),
+        ], {
+          cwd: RAIZ,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+
+        filho.on('error', (err) => {
           mon.lastError = { at: new Date().toISOString(), message: err.message };
-          console.log(`[monitor] ERRO: ${err.message}`);
-          return json(req, res, 500, {
-            error: err.message,
-            hint: 'Falha ao executar o monitoramento. Veja logs/server.log para detalhes.',
-          });
-        } finally {
           mon.running = false;
           mon.startedAt = null;
-        }
+        });
+
+        filho.on('exit', (code) => {
+          mon.running = false;
+          mon.startedAt = null;
+          let r = null;
+          try {
+            if (fs.existsSync(tmpResultado)) {
+              r = JSON.parse(fs.readFileSync(tmpResultado, 'utf8'));
+              fs.unlinkSync(tmpResultado);
+            }
+          } catch { /* resultado ilegivel: ignora */ }
+
+          if (code === 0 && r) {
+            mon.lastResult = { finishedAt: new Date().toISOString(), ...r };
+          } else if (code !== 0) {
+            mon.lastError = { at: new Date().toISOString(), message: `a varredura terminou com codigo ${code}` };
+            console.log(`[monitor] filho terminou com codigo ${code}`);
+          }
+        });
+
+        // resposta imediata: a UI acompanha por /api/monitor/status
+        return json(req, res, 202, { started: true, startedAt: mon.startedAt });
       }
 
       if (route === '/api/scope' && req.method === 'GET') {

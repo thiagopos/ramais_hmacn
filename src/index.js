@@ -77,13 +77,19 @@ async function main() {
     }
 
     case 'enrich': {
-      await enrichPhones({
+      const resultado = await enrichPhones({
         dbPath,
         concurrency: args.concurrency ? Number(args.concurrency) : 8,
         monitor: !!args.monitor,
         timeoutMs: args.timeout ? Number(args.timeout) : 4000,
         targets: args.targets ? String(args.targets).split(',').map((s) => s.trim()).filter(Boolean) : null,
       });
+      // --result-file: permite que o servidor web leia o resumo quando
+      // dispara a varredura em processo separado (sem bloquear o event loop)
+      if (args['result-file']) {
+        const fsMod = await import('node:fs');
+        fsMod.writeFileSync(String(args['result-file']), JSON.stringify(resultado ?? null));
+      }
       break;
     }
 
