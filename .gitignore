@@ -75,3 +75,6 @@ ui-*.png
 login*.png
 recon-*
 *.tmp
+
+# Rascunhos de analise da intranet (contem dados de setores/ramais)
+intranet*

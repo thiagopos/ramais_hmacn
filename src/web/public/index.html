@@ -172,6 +172,7 @@
     display: flex; align-items: stretch; gap: 1px; height: 54px;
     background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 4px;
   }
+  .chart-bars[hidden] { display: none !important; }
   .chart-bars i {
     flex: 1 1 0; min-width: 2px; border-radius: 2px; background: var(--ok);
     transition: filter .12s, transform .12s; cursor: default;
@@ -309,6 +310,43 @@
   }
   .btn-edit-setor:hover { background: rgba(79,140,255,.12); border-color: var(--accent); }
 
+  /* ---- historico de quedas ---- */
+  .modal-wide { width: min(720px, 100%); }
+  .qd-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin: 16px 0 10px;
+  }
+  .qd-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+  .qd-row {
+    display: grid; grid-template-columns: 132px 1fr auto; gap: 12px; align-items: center;
+    background: #15181f; border: 1px solid var(--line); border-left: 3px solid var(--bad);
+    border-radius: 8px; padding: 9px 12px; font-size: 12.5px;
+  }
+  .qd-row.aberta { border-left-color: var(--warn); background: rgba(241,196,15,.06); }
+  .qd-when { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 550; }
+  .qd-when small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }
+  .qd-fim { color: var(--muted); }
+  .qd-fim strong { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 550; }
+  .qd-dur {
+    font-variant-numeric: tabular-nums; font-weight: 600; text-align: right;
+    color: var(--bad); white-space: nowrap;
+  }
+  .qd-dur.aberta { color: var(--warn); }
+  .qd-vazio { padding: 34px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ---- edicao inline de setor ---- */
+  .sm-edit-box {
+    width: 100%; background: #15181f; border: 1px solid rgba(79,140,255,.4);
+    border-radius: 10px; padding: 14px 16px; animation: pop .16s ease;
+  }
+  .sm-edit-title { font-size: 13px; margin-bottom: 12px; }
+  .sm-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .sm-tag-edit {
+    background: transparent; border: 0; color: #9fb6dc; cursor: pointer;
+    font-size: 12px; line-height: 1; padding: 0 2px; border-radius: 50%;
+  }
+  .sm-tag-edit:hover { color: var(--accent); }
+
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-thumb { background: #333a47; border-radius: 6px; }
 </style>
@@ -404,7 +442,7 @@
   </div>
   <div class="chart-legend" id="chartLegend">
     <span><i style="background:var(--ok)"></i>online</span>
-    <span><i style="background:var(--bad)"></i>desaparecido</span>
+    <span><i style="background:var(--bad)"></i>offline</span>
     <span><i style="background:#262b36"></i>sem coleta</span>
   </div>
   <dl id="details"></dl>
@@ -489,6 +527,50 @@
   </div>
 </div>
 
+<!-- ================= modal de historico de quedas ================= -->
+<div id="quedasModal" class="modal" hidden>
+  <div class="modal-box modal-wide" role="dialog" aria-modal="true" aria-labelledby="qdTitle">
+    <header class="modal-head">
+      <div>
+        <h2 id="qdTitle">Histórico de quedas</h2>
+        <p class="modal-sub" id="qdSub"></p>
+      </div>
+      <button class="modal-x" id="qdClose" title="Fechar (Esc)">×</button>
+    </header>
+
+    <div class="modal-body">
+      <div class="hist-stats" id="qdStats">
+        <div class="hs bad"><div class="v" id="qdEps">—</div><div class="k">Quedas</div></div>
+        <div class="hs"><div class="v" id="qdTempo">—</div><div class="k">Tempo offline</div></div>
+        <div class="hs"><div class="v" id="qdMaior">—</div><div class="k">Maior queda</div></div>
+      </div>
+
+      <div class="qd-bar">
+        <div class="range-sel" id="qdRange">
+          <button data-h="0" class="active">Tudo</button>
+          <button data-h="24">24h</button>
+          <button data-h="168">7 dias</button>
+        </div>
+        <span class="muted" id="qdCount"></span>
+      </div>
+
+      <div class="qd-list" id="qdLista"></div>
+    </div>
+
+    <footer class="modal-foot">
+      <span class="muted">Quedas seguidas são agrupadas em um único período.</span>
+      <button class="btn-ghost" id="qdFechar">Fechar</button>
+    </footer>
+  </div>
+</div>
+
+<datalist id="listaAndares">
+  <option>Térreo</option><option>1º Andar</option><option>2º Andar</option>
+  <option>3º Andar</option><option>4º Andar</option><option>5º Andar</option><option>6º Andar</option>
+</datalist>
+<datalist id="listaPredios"><option>Hospitalar</option><option>Administrativo</option></datalist>
+<datalist id="listaAlas"><option>A</option><option>B</option></datalist>
+
 <script>
 let all = [];
 let sortKey = 'ramal', sortDir = 1;
@@ -510,7 +592,7 @@ function fmt(iso) {
 function statusDot(r) {
   if (r.online === 0) {
     const when = r.missing_since ? ' desde ' + fmt(r.missing_since) : '';
-    return `<span class="dot off"></span><span class="st-missing" title="não respondeu${when}">desaparecido</span>`;
+    return `<span class="dot off"></span><span class="st-missing" title="offline${when}">offline</span>`;
   }
   if (r.online === 1) return '<span class="dot on"></span>online';
   return '<span class="dot unk"></span>não verificado';
@@ -553,6 +635,13 @@ function render() {
       if (!x && !y) return 0;
       if (!x) return 1;
       if (!y) return -1;
+      // desempate: mesma quantidade de quedas -> maior % de indisponibilidade primeiro
+      if (x === y) {
+        const px = a.pct_indisponivel || 0;
+        const py = b.pct_indisponivel || 0;
+        if (px !== py) return (px > py ? -1 : 1) * (sortDir > 0 ? 1 : -1);
+        return 0;
+      }
     }
     if (sortKey === 'ip') {
       const toN = (ip) => ip.split('.').reduce((acc, o) => acc * 256 + +o, 0);
@@ -675,7 +764,7 @@ function renderBars(buckets, stats, horas) {
   bars.innerHTML = buckets.map((b) => {
     const cls = b.state === 'on' ? '' : b.state === 'off' ? ' off' : ' nodata';
     const quando = fmtMin(b.sample ? b.sample.created_at : b.t);
-    const estado = b.state === 'on' ? 'online' : b.state === 'off' ? 'desaparecido' : 'sem coleta';
+    const estado = b.state === 'on' ? 'online' : b.state === 'off' ? 'offline' : 'sem coleta';
     return `<i class="${cls}" title="${quando} — ${estado}"></i>`;
   }).join('');
 
@@ -688,7 +777,7 @@ function renderBars(buckets, stats, horas) {
 
   document.getElementById('chartLegend').innerHTML = `
     <span><i style="background:var(--ok)"></i>online</span>
-    <span><i style="background:var(--bad)"></i>desaparecido</span>
+    <span><i style="background:var(--bad)"></i>offline</span>
     <span><i style="background:#262b36"></i>sem coleta</span>`;
 }
 
@@ -829,10 +918,13 @@ function renderLine(samples, stats, horas, stepHours) {
 async function loadHistory(ip, hours) {
   const bars = document.getElementById('chartBars');
   const line = document.getElementById('chartLine');
-  const modoLinha = hours >= 24; // 24h, 48h e 7 dias -> linha
+  const modoLinha = hours >= 24; // 24h, 48h e 7 dias -> SO linha
 
+  // esconde de fato o grafico de barras em janelas longas
   bars.hidden = modoLinha;
+  bars.style.display = modoLinha ? 'none' : '';
   line.hidden = !modoLinha;
+  line.style.display = modoLinha ? '' : 'none';
   if (!modoLinha) bars.innerHTML = '<i class="nodata" style="flex:1"></i>';
   bars.dataset.hours = hours;
 
@@ -879,11 +971,12 @@ function openDrawer(r) {
         : '');
 
   const d = document.getElementById('details');
-  const estab = r.amostras == null
+  const estab = (r.amostras == null
     ? '<span class="muted">sem histórico coletado</span>'
     : (r.quedas > 0
         ? `<span class="badge-queda">${r.quedas} queda(s)</span> <span class="muted">· indisponível em ${r.pct_indisponivel}% dos ciclos (${r.amostras_offline}/${r.amostras})</span>`
-        : `<span style="color:var(--ok)">estável</span> <span class="muted">· ${r.amostras} ciclos sem falha</span>`);
+        : `<span style="color:var(--ok)">estável</span> <span class="muted">· ${r.amostras} ciclos sem falha</span>`))
+    + `<button class="btn-edit-setor" id="btnQuedas">Histórico</button>`;
 
   d.innerHTML = [
     ['Setor', setorHtml],
@@ -892,12 +985,15 @@ function openDrawer(r) {
     ['MAC', r.mac], ['User-Agent SIP', r.sip_ua], ['Servidor HTTP', r.http_server],
     ['Portas', (() => { try { return JSON.parse(r.ports_json).join(', '); } catch { return '—'; } })()],
     ['Primeiro visto', fmt(r.first_seen)], ['Último contato', fmt(r.last_seen)],
-    ...(r.online === 0 ? [['Desaparecido desde', fmt(r.missing_since)]] : []),
+    ...(r.online === 0 ? [['Offline desde', fmt(r.missing_since)]] : []),
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null ? '—' : v}</dd>`).join('');
   document.getElementById('drawer').classList.add('open');
 
   const btnEdit = document.getElementById('btnEditSetor');
   if (btnEdit) btnEdit.onclick = () => smAbrir(r.ramal);
+
+  const btnQuedas = document.getElementById('btnQuedas');
+  if (btnQuedas) btnQuedas.onclick = () => qdAbrir(r.ip, r.ramal);
 
   currentIp = r.ip;
   loadHistory(r.ip, currentHours);
@@ -936,12 +1032,87 @@ function smRenderAtuais() {
   SM.tags.innerHTML = SM.atuais.map((s) => `
     <span class="sm-tag">
       ${s.setor}${s.andar ? ` <small>${s.andar}</small>` : ''}
-      <button data-setor="${s.setor_id}" title="Remover este setor">×</button>
+      <button data-edit="${s.setor_id}" title="Editar dados do setor" class="sm-tag-edit">✎</button>
+      <button data-setor="${s.setor_id}" title="Remover do ramal">×</button>
     </span>`).join('');
 
   SM.tags.querySelectorAll('button[data-setor]').forEach((b) => {
     b.onclick = () => smDesvincular(Number(b.dataset.setor));
   });
+  SM.tags.querySelectorAll('button[data-edit]').forEach((b) => {
+    b.onclick = () => smEditarSetor(Number(b.dataset.edit));
+  });
+}
+
+/** Edita nome/andar/predio/ala de um setor existente (vale para todos os ramais dele). */
+function smEditarSetor(setorId) {
+  const s = SM.catalogo.find((x) => x.id === setorId);
+  if (!s) return;
+
+  // form inline no lugar das tags
+  SM.tags.innerHTML = `
+    <div class="sm-edit-box">
+      <div class="sm-edit-title">Editando <strong>${s.setor}</strong>
+        <span class="muted">· ${s.ramais} ramal(is) usam este setor</span></div>
+      <div class="sm-grid">
+        <label class="sm-field"><span>Setor *</span>
+          <input type="text" id="edNome" class="sm-input" value="${(s.setor || '').replace(/"/g, '&quot;')}">
+        </label>
+        <label class="sm-field"><span>Andar</span>
+          <input type="text" id="edAndar" class="sm-input" list="listaAndares" value="${(s.andar || '').replace(/"/g, '&quot;')}">
+        </label>
+        <label class="sm-field"><span>Prédio</span>
+          <input type="text" id="edPredio" class="sm-input" list="listaPredios" value="${(s.predio || '').replace(/"/g, '&quot;')}">
+        </label>
+        <label class="sm-field"><span>Ala</span>
+          <input type="text" id="edAla" class="sm-input" list="listaAlas" value="${(s.ala || '').replace(/"/g, '&quot;')}">
+        </label>
+      </div>
+      <div class="sm-edit-actions">
+        <button class="btn-ghost" id="edCancelar">Cancelar</button>
+        <button class="btn-primary" id="edSalvar">Salvar alterações</button>
+      </div>
+    </div>`;
+
+  document.getElementById('edCancelar').onclick = () => { smFeedback(null); smRenderAtuais(); };
+  document.getElementById('edSalvar').onclick = () => smSalvarEdicao(setorId);
+  document.getElementById('edNome').focus();
+  // Enter salva, Esc cancela
+  ['edNome', 'edAndar', 'edPredio', 'edAla'].forEach((id) => {
+    document.getElementById(id).onkeydown = (e) => {
+      if (e.key === 'Enter') smSalvarEdicao(setorId);
+      if (e.key === 'Escape') { e.stopPropagation(); smRenderAtuais(); }
+    };
+  });
+}
+
+async function smSalvarEdicao(setorId) {
+  const nome = document.getElementById('edNome').value.trim();
+  if (!nome) { smFeedback('err', 'O nome do setor não pode ficar vazio.'); return; }
+
+  SM.salvar.disabled = true;
+  smFeedback(null);
+  try {
+    const r = await api('/api/setores/editar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        setorId,
+        setor: nome,
+        andar: document.getElementById('edAndar').value.trim(),
+        predio: document.getElementById('edPredio').value.trim(),
+        ala: document.getElementById('edAla').value.trim(),
+      }),
+    });
+    if (!r.ok) { smFeedback('err', r.erro || 'não foi possível editar'); return; }
+    smFeedback('ok', r.semMudanca ? 'Nada foi alterado.' : 'Setor atualizado.');
+    await smCarregar();
+    await load();
+  } catch (e) {
+    smFeedback('err', 'falha de comunicação com o servidor');
+  } finally {
+    SM.salvar.disabled = false;
+  }
 }
 
 async function smDesvincular(setorId) {
@@ -1100,6 +1271,105 @@ document.addEventListener('keydown', (e) => {
 // Enter no campo de nome cria o setor
 document.getElementById('smNome').onkeydown = (e) => { if (e.key === 'Enter') smVincular(); };
 
+/* ================= historico de quedas ================= */
+const QD = {
+  modal: document.getElementById('quedasModal'),
+  lista: document.getElementById('qdLista'),
+  ip: null,
+  ramal: null,
+  horas: 0,
+};
+
+/** Duração legível: 15 min, 2h 10m, 3d 4h. */
+function fmtDur(min) {
+  if (min == null) return '—';
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h < 24) return m ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d}d ${rh}h` : `${d}d`;
+}
+
+function fmtDataHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+async function qdCarregar() {
+  const qs = new URLSearchParams();
+  if (QD.ip) qs.set('ip', QD.ip);
+  if (QD.horas) qs.set('horas', String(QD.horas));
+
+  QD.lista.innerHTML = '<div class="qd-vazio">carregando…</div>';
+  try {
+    const r = await api('/api/quedas?' + qs.toString());
+    const rows = r.rows || [];
+
+    // indicadores
+    const totalMin = rows.reduce((a, x) => a + (x.duracao_min || 0), 0);
+    const maior = rows.reduce((a, x) => Math.max(a, x.duracao_min || 0), 0);
+    document.getElementById('qdEps').textContent = rows.length;
+    document.getElementById('qdTempo').textContent = fmtDur(totalMin);
+    document.getElementById('qdMaior').textContent = fmtDur(maior);
+    document.getElementById('qdCount').textContent =
+      rows.length ? `${rows.length} período(s) de queda` : '';
+
+    if (!rows.length) {
+      QD.lista.innerHTML = '<div class="qd-vazio">Nenhuma queda registrada neste período. 🎉</div>';
+      return;
+    }
+
+    QD.lista.innerHTML = rows.map((q) => {
+      const aberta = !q.retorno;
+      const dur = aberta ? 'ainda offline' : fmtDur(q.duracao_min);
+      return `
+        <div class="qd-row ${aberta ? 'aberta' : ''}">
+          <div class="qd-when">${fmtDataHora(q.inicio)}<small>caiu</small></div>
+          <div class="qd-fim">${aberta
+            ? '<strong>sem retorno até agora</strong>'
+            : `voltou às <strong>${fmtDataHora(q.retorno)}</strong>`}
+            ${q.coletas_offline > 1 ? `<small style="color:var(--muted)"> · ${q.coletas_offline} coletas offline</small>` : ''}
+          </div>
+          <div class="qd-dur ${aberta ? 'aberta' : ''}">${dur}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    QD.lista.innerHTML = '<div class="qd-vazio">não foi possível carregar o histórico</div>';
+  }
+}
+
+async function qdAbrir(ip, ramal) {
+  QD.ip = ip;
+  QD.ramal = ramal;
+  QD.horas = 0;
+  document.getElementById('qdSub').textContent = ramal ? `Ramal ${ramal} · ${ip}` : ip;
+  document.querySelectorAll('#qdRange button').forEach((b) => b.classList.toggle('active', b.dataset.h === '0'));
+  QD.modal.hidden = false;
+  await qdCarregar();
+}
+
+function qdFechar() { QD.modal.hidden = true; }
+
+document.getElementById('qdClose').onclick = qdFechar;
+document.getElementById('qdFechar').onclick = qdFechar;
+document.getElementById('quedasModal').onclick = (e) => { if (e.target.id === 'quedasModal') qdFechar(); };
+document.getElementById('qdRange').onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.querySelectorAll('#qdRange button').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active');
+  QD.horas = Number(b.dataset.h) || 0;
+  qdCarregar();
+};
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !QD.modal.hidden) qdFechar();
+});
+
 document.querySelectorAll('th').forEach((th) => {
   th.onclick = () => {
     if (sortKey === th.dataset.k) sortDir *= -1;
@@ -1183,7 +1453,7 @@ async function runMonitor() {
     if (data.scanned) partes.push(`${data.scanned} IPs varridos`);
     partes.push(`${data.online} online`);
     if (data.novos?.length) partes.push(`${data.novos.length} novo(s)`);
-    if (data.desaparecidos?.length) partes.push(`${data.desaparecidos.length} desaparecido(s)`);
+    if (data.desaparecidos?.length) partes.push(`${data.desaparecidos.length} offline`);
 
     const tipo = (data.novos?.length || data.desaparecidos?.length) ? 'warn' : 'ok';
     const titulo = tipo === 'warn' ? 'Monitoramento concluído com mudanças' : 'Monitoramento concluído';
@@ -1231,7 +1501,7 @@ async function load() {
   document.getElementById('cards').innerHTML = `
     <div class="card"><div class="n">${stats.total}</div><div class="l">Telefones</div></div>
     <div class="card ok"><div class="n">${stats.online}</div><div class="l">Online</div></div>
-    <div class="card bad"><div class="n">${stats.desaparecidos ?? stats.offline}</div><div class="l">Desaparecidos</div></div>
+    <div class="card bad"><div class="n">${stats.desaparecidos ?? stats.offline}</div><div class="l">Offline</div></div>
     <div class="card ${est.instaveis ? 'warn' : ''}" id="cardInstavel" style="cursor:pointer" title="Clique para filtrar">
       <div class="n">${est.instaveis ?? 0}</div><div class="l">Com instabilidade</div></div>
     <div class="card"><div class="n">${stats.comRamal}</div><div class="l">Com ramal</div></div>

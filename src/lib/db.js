@@ -194,6 +194,75 @@ function migrate(db) {
     JOIN ultimo ult ON ult.ip = b.ip
     LEFT JOIN devices d ON d.ip = b.ip;
   `);
+
+  // Historico de quedas agrupado em episodios (sequencia continua offline).
+  // Uma hora fora do ar vira 1 linha, nao 4.
+  db.exec(`
+    DROP VIEW IF EXISTS v_quedas;
+    CREATE VIEW v_quedas AS
+    WITH passo AS (
+      SELECT ip, created_at, online,
+             LAG(online) OVER (PARTITION BY ip ORDER BY created_at) AS anterior
+      FROM monitor_samples
+    ),
+    marcado AS (
+      SELECT ip, created_at, online,
+             CASE WHEN online = 0 AND (anterior IS NULL OR anterior = 1) THEN 1 ELSE 0 END AS abre
+      FROM passo
+    ),
+    numerado AS (
+      SELECT ip, created_at, online,
+             SUM(abre) OVER (PARTITION BY ip ORDER BY created_at
+                             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS ep
+      FROM marcado
+    )
+    SELECT n.ip, d.ramal, n.ep,
+           MIN(CASE WHEN n.online = 0 THEN n.created_at END) AS inicio,
+           MIN(CASE WHEN n.online = 1 THEN n.created_at END) AS retorno,
+           SUM(CASE WHEN n.online = 0 THEN 1 ELSE 0 END)     AS coletas_offline,
+           CASE
+             WHEN MIN(CASE WHEN n.online = 1 THEN n.created_at END) IS NULL THEN NULL
+             ELSE CAST(ROUND((julianday(MIN(CASE WHEN n.online = 1 THEN n.created_at END))
+                        - julianday(MIN(CASE WHEN n.online = 0 THEN n.created_at END))) * 24 * 60) AS INTEGER)
+           END AS duracao_min
+    FROM numerado n
+    LEFT JOIN devices d ON d.ip = n.ip
+    GROUP BY n.ip, n.ep
+    HAVING SUM(CASE WHEN n.online = 0 THEN 1 ELSE 0 END) > 0
+    ORDER BY inicio DESC;
+  `);
+}
+
+/** Historico de quedas (episodios) — filtros opcionais por ip e janela em horas. */
+export function listarQuedas(db, { ip = null, horas = null, limite = 500 } = {}) {
+  const cond = [];
+  const args = [];
+  if (ip) { cond.push('ip = ?'); args.push(ip); }
+  if (horas) {
+    cond.push('inicio >= ?');
+    args.push(new Date(Date.now() - horas * 3600000).toISOString());
+  }
+  const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+  args.push(Math.min(2000, Number(limite) || 500));
+  return db.prepare(
+    `SELECT ip, ramal, inicio, retorno, coletas_offline, duracao_min
+     FROM v_quedas ${where}
+     ORDER BY inicio DESC LIMIT ?`,
+  ).all(...args);
+}
+
+/** Resumo do historico de quedas de um telefone. */
+export function resumoQuedas(db, ip) {
+  const r = db.prepare(
+    `SELECT COUNT(*) episodios,
+            IFNULL(SUM(coletas_offline), 0) coletas,
+            IFNULL(SUM(duracao_min), 0) minutos,
+            MAX(duracao_min) maior,
+            SUM(CASE WHEN retorno IS NULL THEN 1 ELSE 0 END) abertos,
+            MAX(inicio) ultima
+     FROM v_quedas WHERE ip = ?`,
+  ).get(ip);
+  return r;
 }
 
 export function createScan(db, { targets, options }) {
@@ -618,4 +687,45 @@ export function desvincularSetor(db, { ramal, setorId }) {
       `ramal ${dev?.ramal || curto} removido de ${s?.setor || sid}`, new Date().toISOString());
 
   return { ok: true };
+}
+
+/**
+ * Edita os dados de um setor existente (nome, andar, predio, ala).
+ * O id nao muda, entao todos os vinculos existentes continuam valendo.
+ */
+export function editarSetor(db, { setorId, setor, andar, predio, ala }) {
+  const id = Number(setorId);
+  if (!id) return { ok: false, erro: 'setor invalido' };
+
+  const atual = db.prepare(`SELECT * FROM setores WHERE id = ?`).get(id);
+  if (!atual) return { ok: false, erro: 'setor nao encontrado' };
+
+  const nome = String(setor ?? atual.setor).trim();
+  if (!nome) return { ok: false, erro: 'o nome do setor nao pode ficar vazio' };
+
+  const and = String(andar ?? atual.andar ?? '').trim() || null;
+  const pred = String(predio ?? atual.predio ?? '').trim() || null;
+  const al = String(ala ?? atual.ala ?? '').trim() || null;
+
+  // impede criar duplicata (outro setor com mesmo nome e andar)
+  const dup = db.prepare(
+    `SELECT id FROM setores WHERE setor = ? AND IFNULL(andar,'') = IFNULL(?,'') AND id <> ? LIMIT 1`,
+  ).get(nome, and, id);
+  if (dup) {
+    return { ok: false, erro: `ja existe outro setor chamado "${nome}" com este andar (id ${dup.id})` };
+  }
+
+  const semMudanca = nome === atual.setor && and === atual.andar && pred === atual.predio && al === atual.ala;
+  if (semMudanca) return { ok: true, semMudanca: true };
+
+  db.prepare(`UPDATE setores SET setor = ?, andar = ?, predio = ?, ala = ? WHERE id = ?`)
+    .run(nome, and, pred, al, id);
+
+  const scanId = db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m;
+  const antes = `${atual.setor}${atual.andar ? ' [' + atual.andar + ']' : ''}`;
+  const depois = `${nome}${and ? ' [' + and + ']' : ''}`;
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(scanId, '*', 'setor_editado', `${antes} -> ${depois}`, new Date().toISOString());
+
+  return { ok: true, semMudanca: false };
 }

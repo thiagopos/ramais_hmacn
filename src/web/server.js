@@ -17,7 +17,8 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
-  listarSetores, setoresDoRamal, vincularSetor, desvincularSetor,
+  listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
+  listarQuedas, resumoQuedas,
 } from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
@@ -228,13 +229,34 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         return json(res, 200, { ok: true });
       }
 
+      // edita os dados de um setor (nome/andar/predio/ala)
+      if (route === '/api/setores/editar' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = editarSetor(db, body);
+        db.close();
+        if (!r.ok) return json(res, 400, { ok: false, erro: r.erro });
+        return json(res, 200, { ok: true, semMudanca: r.semMudanca });
+      }
+
+      // ---- historico de quedas (episodios) ----
+      if (route === '/api/quedas' && req.method === 'GET') {
+        const ip = url.searchParams.get('ip') || null;
+        const horas = url.searchParams.get('horas') ? Number(url.searchParams.get('horas')) : null;
+        const db = openDb(dbPath);
+        const rows = listarQuedas(db, { ip, horas });
+        const resumo = ip ? resumoQuedas(db, ip) : null;
+        db.close();
+        return json(res, 200, { count: rows.length, rows, resumo });
+      }
+
       if (route === '/api/stats' && req.method === 'GET') {
         const db = openDb(dbPath);
         const one = (sql) => db.prepare(sql).get();
         const stats = {
           total: one(`SELECT COUNT(*) c FROM devices WHERE is_phone=1`).c,
           online: one(`SELECT COUNT(*) c FROM devices WHERE is_phone=1 AND online=1`).c,
-          // desaparecidos = estavam online e agora nao respondem
+          // offline = estava no inventario e nao respondeu na ultima coleta
           desaparecidos: one(`SELECT COUNT(*) c FROM devices WHERE is_phone=1 AND online=0`).c,
           offline: one(`SELECT COUNT(*) c FROM devices WHERE is_phone=1 AND online=0`).c,
           nuncaVerificados: one(`SELECT COUNT(*) c FROM devices WHERE is_phone=1 AND online IS NULL`).c,
@@ -243,6 +265,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
           firmwares: db.prepare(`SELECT firmware, COUNT(*) c FROM devices WHERE is_phone=1 AND firmware IS NOT NULL GROUP BY firmware ORDER BY c DESC`).all(),
           ultimoCheck: one(`SELECT finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1`)?.finished_at || null,
           estabilidade: estabilidadeResumo(db),
+          quedasAbertas: one(`SELECT COUNT(*) c FROM v_quedas WHERE retorno IS NULL`).c,
           ultimoScan: db.prepare(`SELECT finished_at, hosts_alive, phones_found FROM scans WHERE targets NOT LIKE '%monitor%' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1`).get() || null,
         };
         db.close();
@@ -451,8 +474,8 @@ f.onload = function () {
           Array.from(d.querySelectorAll("#rangeSel button")).forEach(function (x) { x.classList.remove("active"); });
           btn.classList.add("active");
         }
-        // abre o modal de setores (?click=modal | modal-novo)
-        if (state === "modal" || state === "modal-novo") {
+        // abre o modal de setores (?click=modal | modal-novo | modal-edit)
+        if (state === "modal" || state === "modal-novo" || state === "modal-edit") {
           const eb = d.getElementById("btnEditSetor");
           if (eb) {
             eb.click();
@@ -462,7 +485,18 @@ f.onload = function () {
                 if (tab) tab.click();
               }, 700);
             }
+            if (state === "modal-edit") {
+              setTimeout(function () {
+                const p = d.querySelector('.sm-tag button[data-edit]');
+                if (p) p.click();
+              }, 900);
+            }
           }
+        }
+        // abre o historico de quedas (?click=quedas)
+        if (state === "quedas") {
+          const qb = d.getElementById("btnQuedas");
+          if (qb) qb.click();
         }
       } else if (++tries > 40) clearInterval(t);
     }, 150);
