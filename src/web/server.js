@@ -548,7 +548,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         const cfg = JSON.stringify({ row: n, click, pw: pw || '', filtro });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
-<iframe id="f" style="width:1600px;height:${altura}px;border:0"></iframe>
+<iframe id="f" style="width:100vw;height:${altura}px;border:0;display:block"></iframe>
 <script>
 const CFG = ${cfg};
 const f = document.getElementById('f');
