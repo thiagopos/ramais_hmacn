@@ -8,7 +8,7 @@ import { expandTargets, DEFAULT_TARGETS } from './config.js';
 import {
   openDb, updateSipIdentity, setPresence, logEvent, registerNewDevice,
   startMonitorRun, finishMonitorRun, insertSample, inventoryRows, createScan, pruneSamples,
-  knownTargets, maybeVacuum,
+  knownTargets, maybeVacuum, refreshStats,
 } from './lib/db.js';
 
 const MONITOR_SCOPE = 'monitor';
@@ -106,6 +106,11 @@ export async function enrichPhones({
     const pruned = pruneSamples(db, 30);
     if (pruned) log(`  (${pruned} amostras antigas removidas — retencao de 30 dias)`);
     if (maybeVacuum(db)) log('  (banco compactado: VACUUM)');
+
+    // recalcula o cache materializado (uma vez por ciclo, atomico).
+    // A interface passa a ler tabelas de 250 linhas em vez de agregar 100k+.
+    const st = refreshStats(db);
+    log(`  Cache de estatisticas: ${st.devices} dispositivos, ${st.episodios} episodios em ${st.ms} ms`);
 
     log(`\n${c.bold('== Monitoramento (varredura ampla) ==')}`);
     log(`  IPs varridos:   ${allIps.length} (${monitorTargets.join(', ')})`);

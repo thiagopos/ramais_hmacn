@@ -265,7 +265,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
           firmwares: db.prepare(`SELECT firmware, COUNT(*) c FROM devices WHERE is_phone=1 AND firmware IS NOT NULL GROUP BY firmware ORDER BY c DESC`).all(),
           ultimoCheck: one(`SELECT finished_at FROM monitor_runs ORDER BY id DESC LIMIT 1`)?.finished_at || null,
           estabilidade: estabilidadeResumo(db),
-          quedasAbertas: one(`SELECT COUNT(*) c FROM v_quedas WHERE retorno IS NULL`).c,
+          quedasAbertas: one(`SELECT COUNT(*) c FROM drop_episodes WHERE retorno IS NULL`).c,
           ultimoScan: db.prepare(`SELECT finished_at, hosts_alive, phones_found FROM scans WHERE targets NOT LIKE '%monitor%' AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1`).get() || null,
         };
         db.close();

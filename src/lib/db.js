@@ -144,6 +144,53 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_samples_run ON monitor_samples(run_id);
     CREATE INDEX IF NOT EXISTS idx_samples_ip  ON monitor_samples(ip);
+    CREATE INDEX IF NOT EXISTS idx_samples_time ON monitor_samples(created_at);
+  `);
+
+  // -------------------------------------------------------------------
+  // CACHE MATERIALIZADO das agregacoes.
+  //
+  // As views v_estabilidade (window functions) e v_quedas custam ~650ms e
+  // ~500ms por avaliacao sobre 100k+ amostras, e eram reavaliadas a cada
+  // requisicao. Estas tabelas guardam o RESULTADO, recalculado uma vez por
+  // ciclo de monitoramento (refreshStats). A leitura passa a ser O(1).
+  //
+  // As views continuam sendo a unica fonte da regra de negocio; as tabelas
+  // sao derivadas delas — se a regra mudar, so a view muda.
+  // -------------------------------------------------------------------
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_stats (
+      ip                TEXT PRIMARY KEY,
+      ramal             TEXT,
+      amostras          INTEGER NOT NULL DEFAULT 0,
+      amostras_offline  INTEGER NOT NULL DEFAULT 0,
+      amostras_online   INTEGER NOT NULL DEFAULT 0,
+      pct_indisponivel  REAL,
+      quedas            INTEGER NOT NULL DEFAULT 0,
+      em_queda          INTEGER NOT NULL DEFAULT 0,
+      em_instabilidade  INTEGER NOT NULL DEFAULT 0,
+      primeira_falha    TEXT,
+      ultima_falha      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_stats_inst ON device_stats(em_instabilidade);
+    CREATE INDEX IF NOT EXISTS idx_stats_queda ON device_stats(em_queda);
+
+    CREATE TABLE IF NOT EXISTS drop_episodes (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip              TEXT NOT NULL,
+      inicio          TEXT NOT NULL,
+      retorno         TEXT,
+      coletas_offline INTEGER NOT NULL DEFAULT 0,
+      duracao_min     INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_ep_ip   ON drop_episodes(ip);
+    CREATE INDEX IF NOT EXISTS idx_ep_ini  ON drop_episodes(inicio);
+    CREATE INDEX IF NOT EXISTS idx_ep_aberto ON drop_episodes(retorno);
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   // Indicadores de estabilidade (historico de amostras).
@@ -237,32 +284,95 @@ function migrate(db) {
 export function listarQuedas(db, { ip = null, horas = null, limite = 500 } = {}) {
   const cond = [];
   const args = [];
-  if (ip) { cond.push('ip = ?'); args.push(ip); }
+  if (ip) { cond.push('e.ip = ?'); args.push(ip); }
   if (horas) {
-    cond.push('inicio >= ?');
+    cond.push('e.inicio >= ?');
     args.push(new Date(Date.now() - horas * 3600000).toISOString());
   }
   const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
   args.push(Math.min(2000, Number(limite) || 500));
+  // le da tabela materializada; ramal vem de devices (a tabela guarda so o ip)
   return db.prepare(
-    `SELECT ip, ramal, inicio, retorno, coletas_offline, duracao_min
-     FROM v_quedas ${where}
-     ORDER BY inicio DESC LIMIT ?`,
+    `SELECT e.ip, e.inicio, e.retorno, e.coletas_offline, e.duracao_min,
+            d.ramal
+     FROM drop_episodes e
+     LEFT JOIN devices d ON d.ip = e.ip
+     ${where}
+     ORDER BY e.inicio DESC LIMIT ?`,
   ).all(...args);
 }
 
 /** Resumo do historico de quedas de um telefone. */
 export function resumoQuedas(db, ip) {
-  const r = db.prepare(
+  return db.prepare(
     `SELECT COUNT(*) episodios,
             IFNULL(SUM(coletas_offline), 0) coletas,
             IFNULL(SUM(duracao_min), 0) minutos,
             MAX(duracao_min) maior,
             SUM(CASE WHEN retorno IS NULL THEN 1 ELSE 0 END) abertos,
             MAX(inicio) ultima
-     FROM v_quedas WHERE ip = ?`,
+     FROM drop_episodes WHERE ip = ?`,
   ).get(ip);
-  return r;
+}
+
+/** Le um valor da tabela meta. */
+export function getMeta(db, key) {
+  return db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key)?.value ?? null;
+}
+
+/**
+ * Recalcula as tabelas materializadas a partir das views.
+ *
+ * Deve rodar UMA vez por ciclo de monitoramento, depois de inserir as
+ * amostras. Usa transacao unica para que nenhum leitor veja a tabela
+ * pela metade (DELETE + INSERT).
+ *
+ * @returns {{ ms:number, devices:number, episodios:number }}
+ */
+export function refreshStats(db) {
+  const t0 = Date.now();
+  const agora = new Date().toISOString();
+
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec('DELETE FROM device_stats');
+    db.exec(`
+      INSERT INTO device_stats
+        (ip, ramal, amostras, amostras_offline, amostras_online,
+         pct_indisponivel, quedas, em_queda, em_instabilidade,
+         primeira_falha, ultima_falha)
+      SELECT ip, ramal, amostras, amostras_offline, amostras_online,
+             pct_indisponivel, quedas, em_queda, em_instabilidade,
+             primeira_falha, ultima_falha
+      FROM v_estabilidade
+    `);
+
+    db.exec('DELETE FROM drop_episodes');
+    db.exec(`
+      INSERT INTO drop_episodes (ip, inicio, retorno, coletas_offline, duracao_min)
+      SELECT ip, inicio, retorno, coletas_offline, duracao_min
+      FROM v_quedas
+      ORDER BY inicio
+    `);
+
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('stats_at', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(agora);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  return {
+    ms: Date.now() - t0,
+    devices: db.prepare(`SELECT COUNT(*) c FROM device_stats`).get().c,
+    episodios: db.prepare(`SELECT COUNT(*) c FROM drop_episodes`).get().c,
+  };
+}
+
+/** true se o cache materializado esta populado. */
+export function statsProntas(db) {
+  return db.prepare(`SELECT COUNT(*) c FROM device_stats`).get().c > 0;
 }
 
 export function createScan(db, { targets, options }) {
@@ -519,7 +629,7 @@ export function inventoryRows(db) {
               e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
               e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
        FROM devices d
-       LEFT JOIN v_estabilidade e ON e.ip = d.ip
+       LEFT JOIN device_stats e ON e.ip = d.ip
        WHERE d.is_phone = 1
        ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
     ).all();
@@ -544,7 +654,7 @@ export function inventoryRows(db) {
             e.quedas, e.pct_indisponivel, e.em_instabilidade, e.em_queda,
             e.amostras, e.amostras_offline, e.primeira_falha, e.ultima_falha
      FROM devices d
-     LEFT JOIN v_estabilidade e ON e.ip = d.ip
+     LEFT JOIN device_stats e ON e.ip = d.ip
      WHERE d.is_phone = 1
      ORDER BY CAST(d.ramal AS INTEGER) IS NULL, CAST(d.ramal AS INTEGER), d.ip`,
   ).all();
@@ -554,13 +664,13 @@ export function inventoryRows(db) {
 export function estabilidadeResumo(db) {
   const one = (sql) => db.prepare(sql).get().c;
   return {
-    comHistorico: one(`SELECT COUNT(*) c FROM v_estabilidade`),
-    instaveis: one(`SELECT COUNT(*) c FROM v_estabilidade WHERE em_instabilidade = 1`),
-    emQueda: one(`SELECT COUNT(*) c FROM v_estabilidade WHERE em_queda = 1`),
-    totalQuedas: one(`SELECT IFNULL(SUM(quedas), 0) c FROM v_estabilidade`),
+    comHistorico: one(`SELECT COUNT(*) c FROM device_stats`),
+    instaveis: one(`SELECT COUNT(*) c FROM device_stats WHERE em_instabilidade = 1`),
+    emQueda: one(`SELECT COUNT(*) c FROM device_stats WHERE em_queda = 1`),
+    totalQuedas: one(`SELECT IFNULL(SUM(quedas), 0) c FROM device_stats`),
     pior: db.prepare(
       `SELECT e.ip, d.ramal, e.quedas, e.pct_indisponivel
-       FROM v_estabilidade e LEFT JOIN devices d ON d.ip = e.ip
+       FROM device_stats e LEFT JOIN devices d ON d.ip = e.ip
        WHERE e.em_instabilidade = 1
        ORDER BY e.pct_indisponivel DESC LIMIT 1`,
     ).get() || null,

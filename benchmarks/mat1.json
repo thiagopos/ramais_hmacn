@@ -1,0 +1,58 @@
+{
+  "label": "mat1",
+  "at": "2026-11-17T11:44:52.164Z",
+  "host": "127.0.0.1:8181",
+  "metrics": {
+    "html": {
+      "ms": 3,
+      "bytes": 64986,
+      "bytesGzip": null,
+      "cacheControl": null,
+      "etag": false
+    },
+    "phones": {
+      "ms": 16,
+      "bytes": 304455,
+      "bytesGzip": null,
+      "cacheControl": "no-store",
+      "etag": false
+    },
+    "stats": {
+      "ms": 13,
+      "bytes": 603,
+      "bytesGzip": null,
+      "cacheControl": "no-store",
+      "etag": false
+    },
+    "scope": {
+      "ms": 12,
+      "bytes": 47,
+      "bytesGzip": null,
+      "cacheControl": "no-store",
+      "etag": false
+    },
+    "monitorStatus": {
+      "ms": 0,
+      "bytes": 86,
+      "bytesGzip": null,
+      "cacheControl": "no-store",
+      "etag": false
+    },
+    "pageLoad": {
+      "ms": 42
+    },
+    "concurrency": {
+      "wall": 50,
+      "individual": [
+        18,
+        33,
+        50
+      ],
+      "serialized": false
+    }
+  },
+  "veredito": {
+    "pageLoadMs": 42,
+    "nota": "EXCELENTE"
+  }
+}

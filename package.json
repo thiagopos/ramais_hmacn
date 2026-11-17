@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "voip-scanner",
   "version": "1.0.0",
   "description": "InventÃ¡rio e monitoramento de telefones IP: descoberta com prova TLS/HTTP, ramal via SIP OPTIONS sem login, SQLite e interface web",
@@ -18,7 +18,9 @@
     "web": "node src/index.js web",
     "report": "node src/index.js report",
     "export": "node src/index.js export",
-    "server": "node scripts/supervisor.mjs"
+    "server": "node scripts/supervisor.mjs",
+    "bench": "node scripts/bench.mjs",
+    "rebuild-stats": "node scripts/rebuild-stats.mjs"
   },
   "keywords": [
     "voip",
@@ -42,4 +44,3 @@
     "README.md"
   ]
 }
-
