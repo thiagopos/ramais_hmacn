@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "voip-scanner",
   "version": "1.0.0",
-  "description": "Inventário e monitoramento de telefones IP: descoberta com prova TLS/HTTP, ramal via SIP OPTIONS sem login, SQLite e interface web",
+  "description": "InventÃ¡rio e monitoramento de telefones IP: descoberta com prova TLS/HTTP, ramal via SIP OPTIONS sem login, SQLite e interface web",
   "type": "module",
   "main": "src/index.js",
   "bin": {
@@ -42,3 +42,4 @@
     "README.md"
   ]
 }
+
