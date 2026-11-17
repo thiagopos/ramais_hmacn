@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   openDb, inventoryRows, knownTargets, setoresResumo, estabilidadeResumo,
   listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
-  listarQuedas, resumoQuedas, inventarioDetalhe,
+  listarQuedas, resumoQuedas, inventarioDetalhe, fecharConexoes,
 } from '../lib/db.js';
 import { enrichPhones } from '../enrich.js';
 import { DEFAULT_TARGETS } from '../config.js';
@@ -591,8 +591,14 @@ go();
 
   const shutdown = (sig) => {
     console.log(`[${stamp()}] recebido ${sig}, encerrando...`);
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 3000).unref();
+    server.close(() => {
+      try { fecharConexoes(); } catch { /* ignora */ }
+      process.exit(0);
+    });
+    setTimeout(() => {
+      try { fecharConexoes(); } catch { /* ignora */ }
+      process.exit(0);
+    }, 3000).unref();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));

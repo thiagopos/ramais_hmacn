@@ -1,0 +1,73 @@
+{
+  "label": "pool",
+  "at": "2026-11-17T11:50:15.529Z",
+  "host": "127.0.0.1:8181",
+  "metrics": {
+    "html": {
+      "ms": 1,
+      "bytes": 67845,
+      "bytesGzip": 18215,
+      "cacheControl": "public, max-age=0",
+      "etag": true
+    },
+    "phones": {
+      "ms": 3,
+      "bytes": 121402,
+      "bytesGzip": 9204,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "stats": {
+      "ms": 1,
+      "bytes": 603,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "scope": {
+      "ms": 1,
+      "bytes": 47,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "monitorStatus": {
+      "ms": 0,
+      "bytes": 86,
+      "bytesGzip": null,
+      "cacheControl": "no-cache",
+      "etag": true
+    },
+    "pageLoad": {
+      "ms": 4
+    },
+    "concurrency": {
+      "wall": 5,
+      "individual": [
+        3,
+        4,
+        5
+      ],
+      "serialized": false
+    },
+    "phonesWarm": {
+      "ms": 4,
+      "bytes": 0,
+      "status": 304
+    },
+    "statsWarm": {
+      "ms": 1,
+      "bytes": 0,
+      "status": 304
+    },
+    "htmlWarm": {
+      "ms": 2,
+      "bytes": 0,
+      "status": 304
+    }
+  },
+  "veredito": {
+    "pageLoadMs": 4,
+    "nota": "EXCELENTE"
+  }
+}

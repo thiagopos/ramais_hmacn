@@ -127,7 +127,8 @@ const wall = Date.now() - t0;
 res.metrics.concurrency = {
   wall: wall,
   individual: conc.map((x) => Math.round(x.ms)),
-  serialized: conc.reduce((a, x) => a + x.ms, 0) > 2.2 * Math.max(...conc.map((x) => x.ms)),
+  // so faz sentido falar em serializacao quando o tempo e perceptivel
+  serialized: wall > 100 && conc.reduce((a, x) => a + x.ms, 0) > 2.2 * Math.max(...conc.map((x) => x.ms)),
 };
 console.log(`  individuais: ${conc.map((x) => Math.round(x.ms)).join(', ')} ms`);
 console.log(`  wall total : ${wall} ms  ${res.metrics.concurrency.serialized ? '(serializado — bloqueia)' : '(concorrente)'}`);

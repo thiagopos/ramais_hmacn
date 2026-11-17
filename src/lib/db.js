@@ -11,14 +11,93 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 
+/**
+ * Versao do schema. Suba este numero sempre que migrate() mudar, para que
+ * bancos existentes sejam atualizados na proxima abertura.
+ */
+const SCHEMA_VERSION = 3;
+
+/** Caminhos ja migrados NESTE processo (evita rodar migrate a cada request). */
+const prontos = new Set();
+
+/**
+ * Conexoes reaproveitadas por processo.
+ *
+ * Abrir+PRAGMAs custa ~1,9 ms e fechar ~1,0 ms; com 4 requisicoes por
+ * carregamento isso era ~12 ms. Como o node:sqlite e sincrono e o Node e
+ * single-thread, uma conexao por caminho e seguro: nao ha intercalacao
+ * de transacoes entre requisicoes.
+ */
+const conexoes = new Map();
+
 export function openDb(dbPath) {
-  const dir = path.dirname(path.resolve(dbPath));
+  const chave = path.resolve(dbPath);
+
+  const existente = conexoes.get(chave);
+  if (existente && existente.__aberta) return existente;
+
+  const dir = path.dirname(chave);
   fs.mkdirSync(dir, { recursive: true });
-  const db = new DatabaseSync(dbPath);
+  const db = new DatabaseSync(chave);
+
+  // PRAGMAs por conexao (baratos). journal_mode e persistente no arquivo.
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA foreign_keys = ON;');
-  migrate(db);
+  // cache de paginas maior: o banco inteiro (~11 MB) cabe na memoria
+  db.exec('PRAGMA cache_size = -32000;');
+  // leitura mapeada em memoria: evita copia de pagina a cada consulta
+  db.exec('PRAGMA mmap_size = 268435456;');
+  // espera ate 5s por lock em vez de falhar de imediato (monitor x web)
+  db.exec('PRAGMA busy_timeout = 5000;');
+
+  if (!prontos.has(chave)) {
+    const versao = lerVersaoSchema(db);
+    if (versao !== SCHEMA_VERSION) {
+      migrate(db);
+      gravarVersaoSchema(db, SCHEMA_VERSION);
+    }
+    prontos.add(chave);
+  }
+
+  // Conexao compartilhada: close() vira no-op para nao derrubar a conexao
+  // que outras requisicoes estao usando. Use fecharConexoes() no shutdown.
+  db.__aberta = true;
+  db.__closeReal = db.close.bind(db);
+  db.close = () => {};
+  conexoes.set(chave, db);
   return db;
+}
+
+/** Fecha de verdade todas as conexoes do processo (usar no shutdown). */
+export function fecharConexoes() {
+  for (const [chave, db] of conexoes) {
+    try {
+      db.__closeReal();
+    } catch {
+      // ja fechada
+    }
+    conexoes.delete(chave);
+    prontos.delete(chave);
+  }
+}
+
+/** Le a versao do schema; 0 quando o banco e novo ou nao tem a tabela meta. */
+function lerVersaoSchema(db) {
+  try {
+    const tem = db.prepare(
+      `SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='meta'`,
+    ).get().c;
+    if (!tem) return 0;
+    const v = db.prepare(`SELECT value FROM meta WHERE key='schema_version'`).get();
+    return v ? Number(v.value) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function gravarVersaoSchema(db, versao) {
+  db.prepare(`INSERT INTO meta (key, value) VALUES ('schema_version', ?)
+              ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(versao));
 }
 
 function migrate(db) {
