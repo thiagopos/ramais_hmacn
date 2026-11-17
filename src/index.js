@@ -142,11 +142,14 @@ async function main() {
       const { startWeb } = await import('./web/server.js');
       // precedencia: flag da CLI > web-config.json > padrao
       const conf = readWebConfig();
+      // A autenticacao e pelo Active Directory: a senha unica de antes nao
+      // e mais usada. A flag --password continua aceita e ignorada, para
+      // nao quebrar scripts existentes.
+      if (args.password) console.warn('aviso: --password nao e mais usado (login pelo Active Directory).');
       await startWeb({
         dbPath,
         port: args.port ? Number(args.port) : Number(conf.port || 8080),
         host: args.host ? String(args.host) : String(conf.host || '127.0.0.1'),
-        password: args.password || conf.password || undefined,
       });
       break;
     }

@@ -23,12 +23,16 @@ import {
   listarSetores, setoresDoRamal, vincularSetor, desvincularSetor, editarSetor,
   listarQuedas, resumoQuedas, inventarioDetalhe, fecharConexoes,
   statsProntas, refreshStats,
+  listarUsuarios, obterUsuario, salvarUsuario, removerUsuario, alternarUsuario,
+  criarSessao, obterSessao, apagarSessao, marcarAcesso,
 } from '../lib/db.js';
 import { DEFAULT_TARGETS } from '../config.js';
 import {
-  LOGIN_PAGE, SESSION_COOKIE_NAME, checkPassword, clearSessionCookie,
-  parseCookies, sessionToken,
+  SESSAO_HORAS, cookieLimpo, cookieSessao,
+  gerarToken, paginaLogin, paginaNegado, tokenDaRequisicao, esc,
 } from './auth.js';
+import { autenticar, buscarUsuarios } from './ldap.js';
+import { carregarConfigAd } from '../../config/ad.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -98,58 +102,123 @@ function sendFile(req, res, filePath) {
   sendBody(req, res, 200, raw, tipo, { maxAge: 0 });
 }
 
-/** Autenticacao por tela de login + cookie de sessao (ver auth.js). */
-function makeAuth(password) {
-  if (!password) return null;
-  const secret = crypto.randomBytes(32).toString('hex');
-  const token = sessionToken(password, secret);
-  return {
-    token,
-    /**
-     * Garante sessao valida. Trata /login (GET form, POST senha) e /logout.
-     * Retorna true se a requisicao ja foi tratada/liberada.
-     */
-    handle(req, res, route) {
-      const cookies = parseCookies(req);
+/**
+ * Autenticacao por Active Directory + lista fechada de usuarios.
+ *
+ * Duas etapas independentes:
+ *  1. o AD prova QUEM e a pessoa (bind com a senha digitada)
+ *  2. a tabela `usuarios` decide se ela PODE entrar
+ *
+ * A senha existe apenas durante a requisicao; nada dela e gravado.
+ */
+function makeAuth({ dbPath, adConfig }) {
+  /** Executa uma consulta com conexao propria e ja fecha. */
+  const comDb = (fn) => {
+    const db = openDb(dbPath);
+    return fn(db);
+  };
 
+  /** IP de origem (respeita X-Forwarded-For se houver proxy na frente). */
+  const ipDe = (req) => {
+    const fwd = req.headers['x-forwarded-for'];
+    if (fwd) return String(fwd).split(',')[0].trim();
+    return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  };
+
+  return {
+    /**
+     * Garante sessao valida. Trata /login (GET/POST) e /logout.
+     * Retorna { tratado: true } quando a resposta ja foi enviada, ou
+     * { usuario } quando a requisicao segue autenticada.
+     */
+    async handle(req, res, route) {
       if (route === '/logout') {
-        res.writeHead(302, { 'Set-Cookie': clearSessionCookie(), Location: '/login' });
+        const token = tokenDaRequisicao(req);
+        if (token) comDb((db) => apagarSessao(db, token));
+        res.writeHead(302, { 'Set-Cookie': cookieLimpo(), Location: '/login' });
         res.end();
-        return true;
+        return { tratado: true };
       }
 
+      const token = tokenDaRequisicao(req);
+      const sessao = token ? comDb((db) => obterSessao(db, token)) : null;
+
       if (route === '/login' && req.method === 'GET') {
-        if (cookies[SESSION_COOKIE_NAME] && safeToken(cookies[SESSION_COOKIE_NAME], token)) {
+        if (sessao) {
           res.writeHead(302, { Location: '/' });
           res.end();
-          return true;
+          return { tratado: true };
         }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        res.end(LOGIN_PAGE);
-        return true;
+        const qs = new URL(req.url, 'http://local').searchParams;
+        html(res, 200, paginaLogin({
+          erro: qs.get('erro') || '',
+          aviso: qs.get('aviso') || '',
+          login: qs.get('u') || '',
+        }));
+        return { tratado: true };
       }
 
       if (route === '/login' && req.method === 'POST') {
-        return readForm(req).then((body) => {
-          const qs = new URLSearchParams(body);
-          const ok = checkPassword(qs.get('password') || '', password);
-          if (ok) {
-            res.writeHead(302, {
-              'Set-Cookie': `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`,
-              Location: '/',
-            });
-            res.end();
-          } else {
-            console.log(`[auth] senha incorreta de ${req.socket.remoteAddress}`);
-            res.writeHead(302, { Location: '/login?e=1' });
-            res.end();
-          }
-          return true;
+        // limita o corpo: senha nao precisa de mais que isso
+        const body = await readForm(req, 4096);
+        const qs = new URLSearchParams(body);
+        const login = (qs.get('username') || '').trim().toLowerCase();
+        const senha = qs.get('password') || '';
+        const vindoDe = ipDe(req);
+
+        if (!login || !senha) {
+          res.writeHead(302, { Location: '/login?erro=' + encodeURIComponent('Informe usuário e senha.') + '&u=' + encodeURIComponent(login) });
+          res.end();
+          return { tratado: true };
+        }
+
+        // 1) o AD valida a credencial
+        const r = await autenticar(adConfig, login, senha);
+        if (!r.ok) {
+          console.log(`[auth] falha de login "${login}" de ${vindoDe}${r.conexao ? ' (AD indisponivel)' : ''}`);
+          const msg = r.conexao
+            ? 'Active Directory indisponível no momento. Tente novamente em instantes.'
+            : 'Usuário ou senha inválidos.';
+          res.writeHead(302, { Location: '/login?erro=' + encodeURIComponent(msg) + '&u=' + encodeURIComponent(login) });
+          res.end();
+          return { tratado: true };
+        }
+
+        // 2) credencial valida: o acesso depende do cadastro
+        const usuario = comDb((db) => obterUsuario(db, login));
+        if (!usuario) {
+          console.log(`[auth] "${login}" autenticou no AD mas nao esta cadastrado (${vindoDe})`);
+          html(res, 403, paginaNegado(
+            'Sua conta do domínio foi validada, mas você não está cadastrado neste sistema. '
+            + 'Solicite o cadastro à equipe de TI.',
+          ));
+          return { tratado: true };
+        }
+        if (!usuario.ativo) {
+          console.log(`[auth] "${login}" esta desativado (${vindoDe})`);
+          html(res, 403, paginaNegado('Seu acesso está desativado. Procure a equipe de TI.'));
+          return { tratado: true };
+        }
+
+        const novoToken = gerarToken();
+        comDb((db) => {
+          criarSessao(db, {
+            token: novoToken, login, ip: vindoDe,
+            userAgent: req.headers['user-agent'] || null, horas: SESSAO_HORAS,
+          });
+          marcarAcesso(db, login);
         });
+        console.log(`[auth] "${login}" entrou de ${vindoDe}`);
+
+        res.writeHead(302, {
+          'Set-Cookie': cookieSessao(novoToken),
+          Location: '/',
+        });
+        res.end();
+        return { tratado: true };
       }
 
-      // todas as demais rotas exigem sessao
-      if (cookies[SESSION_COOKIE_NAME] && safeToken(cookies[SESSION_COOKIE_NAME], token)) return false;
+      if (sessao) return { usuario: sessao.usuario };
 
       if (route.startsWith('/api/')) {
         json(req, res, 401, { error: 'nao autenticado' });
@@ -157,14 +226,9 @@ function makeAuth(password) {
         res.writeHead(302, { Location: '/login' });
         res.end();
       }
-      return true;
+      return { tratado: true };
     },
   };
-}
-
-function safeToken(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 function readForm(req, limit = 4096) {
@@ -179,6 +243,17 @@ function readForm(req, limit = 4096) {
   });
 }
 
+/** Resposta HTML (sempre sem cache: paginas de login/cadastro sao dinamicas). */
+function html(res, code, corpo) {
+  const raw = Buffer.from(corpo, 'utf8');
+  res.writeHead(code, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': raw.length,
+    'Cache-Control': 'no-store',
+  });
+  res.end(raw);
+}
+
 /** Le corpo JSON (limitado). Retorna {} se vazio/invalido. */
 async function readJsonBody(req, limit = 64 * 1024) {
   const raw = await readForm(req, limit);
@@ -191,7 +266,7 @@ async function readJsonBody(req, limit = 64 * 1024) {
   }
 }
 
-export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1', password } = {}) {
+export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1' } = {}) {
   // garante schema
   const dbBoot = openDb(dbPath);
 
@@ -208,8 +283,9 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
     }
   }
 
-  const pw = password || process.env.VOIP_WEB_PASS;
-  const auth = makeAuth(pw);
+  // Autenticacao: sempre ativa (Active Directory + lista fechada de usuarios).
+  const adConfig = carregarConfigAd(RAIZ);
+  const auth = makeAuth({ dbPath, adConfig });
 
   // estado do monitoramento (compartilhado entre requisicoes e reidratavel)
   const mon = { running: false, startedAt: null, lastError: null, lastResult: null, promise: null };
@@ -218,9 +294,11 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
     const url = new URL(req.url, `http://${req.headers.host}`);
     const route = url.pathname;
 
-    if (auth && route !== '/__test') {
-      const handled = await auth.handle(req, res, route);
-      if (handled) return;
+    if (route !== '/__test') {
+      const r = await auth.handle(req, res, route);
+      if (r.tratado) return;
+      // disponivel para as rotas (auditoria e tela de cadastro)
+      req.usuario = r.usuario;
     }
 
     try {
@@ -536,6 +614,82 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         return json(req, res, 200, { targets: scopes.length ? scopes : DEFAULT_TARGETS });
       }
 
+      // ---------------- usuarios autorizados ----------------
+
+      // quem esta logado (a interface usa para montar o cabecalho)
+      if (route === '/api/eu' && req.method === 'GET') {
+        return json(req, res, 200, {
+          login: req.usuario.login,
+          nome: req.usuario.nome,
+          email: req.usuario.email,
+          departamento: req.usuario.departamento,
+        });
+      }
+
+      if (route === '/api/usuarios' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = listarUsuarios(db);
+        db.close();
+        return json(req, res, 200, { rows, eu: req.usuario.login });
+      }
+
+      // busca no AD para o cadastro (usa a conta de servico do .env)
+      if (route === '/api/usuarios/buscar-ad' && req.method === 'GET') {
+        const termo = (url.searchParams.get('q') || '').trim();
+        try {
+          const achados = await buscarUsuarios(adConfig, termo, 25);
+          const db = openDb(dbPath);
+          const cadastrados = new Set(db.prepare(`SELECT login FROM usuarios`).all().map((r) => r.login));
+          db.close();
+          return json(req, res, 200, {
+            rows: achados.map((u) => ({ ...u, jaCadastrado: cadastrados.has(u.login.toLowerCase()) })),
+          });
+        } catch (err) {
+          return json(req, res, 502, { error: err.message });
+        }
+      }
+
+      if (route === '/api/usuarios' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = salvarUsuario(db, {
+          login: body.login,
+          nome: body.nome,
+          email: body.email,
+          departamento: body.departamento,
+          cargo: body.cargo,
+          criadoPor: req.usuario.login,
+        });
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true, criado: r.criado });
+      }
+
+      // ativar/desativar ou remover: /api/usuarios/:login
+      if (route.startsWith('/api/usuarios/') && (req.method === 'POST' || req.method === 'DELETE')) {
+        const login = decodeURIComponent(route.slice('/api/usuarios/'.length));
+        const alvo = login.toLowerCase();
+
+        // protecao: nao deixar o sistema sem administradores
+        const db = openDb(dbPath);
+        if (alvo === req.usuario.login.toLowerCase() && req.method === 'DELETE') {
+          db.close();
+          return json(req, res, 400, { ok: false, erro: 'Você não pode remover seu próprio acesso.' });
+        }
+
+        let r;
+        if (req.method === 'DELETE') {
+          r = removerUsuario(db, alvo, req.usuario.login);
+        } else {
+          const body = await readJsonBody(req);
+          r = alternarUsuario(db, alvo, !!body.ativo, req.usuario.login);
+        }
+        db.close();
+
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
+      }
+
       // harness de teste visual: SO de localhost (contornaria o login)
       if (route === '/__test') {
         const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
@@ -545,7 +699,11 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         // filtros repassados ao iframe: ?filtro=status%3Doffline
         const filtro = url.searchParams.get('filtro') ? '&' + url.searchParams.get('filtro') : '';
         const altura = Number(url.searchParams.get('h') || 880);
-        const cfg = JSON.stringify({ row: n, click, pw: pw || '', filtro });
+        // credenciais do AD para o harness (apenas de localhost).
+        // Usuario e senha vem da query e so existem durante este teste visual.
+        const usuarioAd = url.searchParams.get('u') || '';
+        const senhaAd = url.searchParams.get('p') || '';
+        const cfg = JSON.stringify({ row: n, click, filtro, u: usuarioAd, p: senhaAd });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
 <iframe id="f" style="width:100vw;height:${altura}px;border:0;display:block"></iframe>
@@ -553,12 +711,12 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
 const CFG = ${cfg};
 const f = document.getElementById('f');
 async function go() {
-  const st = await fetch("/api/stats", { credentials: "same-origin" });
-  if (st.status !== 200) {
+  const st = await fetch("/api/eu", { credentials: "same-origin" });
+  if (st.status !== 200 && CFG.u && CFG.p) {
     await fetch("/login", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "password=" + encodeURIComponent(CFG.pw),
+      body: "username=" + encodeURIComponent(CFG.u) + "&password=" + encodeURIComponent(CFG.p),
       credentials: "same-origin",
       redirect: "manual",
     }).catch(function () {});
@@ -610,6 +768,10 @@ f.onload = function () {
         if (state === "quedas") {
           const qb = d.getElementById("btnQuedas");
           if (qb) qb.click();
+        }
+        // abre o gerenciamento de usuarios (?click=usuarios)
+        if (state === "usuarios") {
+          if (typeof d.defaultView.usAbrir === "function") d.defaultView.usAbrir();
         }
       } else if (++tries > 40) clearInterval(t);
     }, 150);

@@ -30,9 +30,18 @@ function check(nome, cond, extra = '') {
   else { falhas++; console.log(`  FALHA ${nome}${extra ? '  ' + extra : ''}`); }
 }
 
-const login = await req('POST', '/login', { body: 'password=1234' });
+// Credenciais do teste: SMOKE_USER / SMOKE_PASS (o AD valida de verdade).
+// Sem elas, os testes que exigem sessao sao pulados com aviso.
+const SMOKE_USER = process.env.SMOKE_USER || '';
+const SMOKE_PASS = process.env.SMOKE_PASS || '';
+
+const login = SMOKE_USER
+  ? await req('POST', '/login', {
+    body: `username=${encodeURIComponent(SMOKE_USER)}&password=${encodeURIComponent(SMOKE_PASS)}`,
+  })
+  : { status: 0, headers: {} };
 const cookie = (login.headers['set-cookie']?.[0] || '').split(';')[0];
-console.log('login:', login.status === 302 ? 'OK' : 'FALHA');
+console.log('login:', login.status === 302 && cookie ? 'OK' : (SMOKE_USER ? 'FALHA' : 'PULADO (defina SMOKE_USER e SMOKE_PASS)'));
 
 console.log('\n--- autenticacao ---');
 const semSessao = await req('GET', '/api/phones');
@@ -86,6 +95,19 @@ check('lastResult ausente ou com resumo valido',
 check('stats expoe ultimoCheck', !!stats.ultimoCheck, stats.ultimoCheck || '');
 const runs = J(await req('GET', '/api/runs', { cookie }));
 check('historico de execucoes', runs.runs.length > 0);
+
+console.log('\n--- usuarios e sessao ---');
+const eu = J(await req('GET', '/api/eu', { cookie }));
+check('/api/eu devolve o usuario', !!eu.login, eu.nome || '');
+check('/api/eu nao expoe senha', !JSON.stringify(eu).toLowerCase().includes('senha'));
+const us = J(await req('GET', '/api/usuarios', { cookie }));
+check('lista de usuarios responde', Array.isArray(us.rows), `${us.rows?.length ?? 0} cadastrado(s)`);
+check('usuario logado esta na lista', us.rows.some((u) => u.login === eu.login));
+check('lista nao expoe senha', !JSON.stringify(us).toLowerCase().includes('senha'));
+
+// sessao invalida nao da acesso
+const forjado = await req('GET', '/api/phones', { cookie: 'voip_session=' + 'a'.repeat(64) });
+check('token de sessao invalido -> 401', forjado.status === 401);
 
 console.log('\n--- http (gzip/etag/304) ---');
 const gz = await req('GET', '/api/phones', { cookie, headers: { 'Accept-Encoding': 'gzip' } });

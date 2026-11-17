@@ -583,6 +583,74 @@
   }
   .sm-tag-edit:hover { color: var(--accent); }
 
+  /* ---- menu de usuario no cabecalho ---- */
+  .usermenu { position: relative; }
+  .btn-user {
+    display: inline-flex; align-items: center; gap: 9px; padding: 5px 10px 5px 6px;
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 22px; font-weight: 500; min-width: 0;
+  }
+  .btn-user:hover { border-color: var(--line-strong); filter: none; }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex: none;
+    background: var(--accent); color: var(--on-accent);
+    display: grid; place-items: center; font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+  }
+  .userinfo { display: flex; flex-direction: column; line-height: 1.2; text-align: left; min-width: 0; }
+  .unome { font-size: 12.5px; font-weight: 600; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ulogin { font-size: 10.5px; color: var(--muted); }
+  .btn-user svg { width: 13px; height: 13px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 7px); z-index: 30; min-width: 208px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+    box-shadow: var(--shadow-md); padding: 5px; animation: pop .13s ease;
+  }
+  .menu[hidden] { display: none; }
+  .menu button, .menu a {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    background: transparent; border: 0; border-radius: var(--r-sm); padding: 8px 10px;
+    color: var(--text-2); font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none;
+    font-family: inherit;
+  }
+  .menu button:hover, .menu a:hover { background: var(--surface-hover); color: var(--text); filter: none; }
+  .menu svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ---- modal de usuarios ---- */
+  .us-resultados { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .us-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--surface-3); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px;
+  }
+  .us-item .quem { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+  .us-item .quem strong { font-size: 13px; font-weight: 600; }
+  .us-item .quem span { font-size: 11.5px; color: var(--muted); }
+  .us-item.ja { opacity: .55; }
+  .us-add {
+    background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-text);
+    padding: 5px 13px; font-size: 12px; border-radius: 7px; font-weight: 600; white-space: nowrap;
+  }
+  .us-add:hover { filter: brightness(1.15); }
+  .us-lista { display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+  .us-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center;
+    background: var(--surface-3); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 8px; padding: 9px 12px;
+  }
+  .us-row.inativo { border-left-color: var(--muted); opacity: .6; }
+  .us-row .quem { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+  .us-row .quem strong { font-size: 13px; font-weight: 600; }
+  .us-row .quem span { font-size: 11.5px; color: var(--muted); }
+  .us-acoes { display: flex; gap: 5px; }
+  .us-acoes button {
+    background: transparent; border: 1px solid var(--line); color: var(--muted);
+    padding: 4px 9px; font-size: 11.5px; border-radius: 6px; font-weight: 600;
+  }
+  .us-acoes button:hover { color: var(--text); border-color: var(--line-strong); filter: none; }
+  .us-acoes button.perigo:hover { color: var(--bad-text); border-color: var(--bad-border); background: var(--bad-soft); }
+  .us-vazio { padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
   /* ---- barra de rolagem ---- */
   * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -611,6 +679,27 @@
     <span class="btn-spinner" id="spinner" hidden></span>
     <span id="btnLabel">Executar monitoramento</span>
   </button>
+
+  <div class="usermenu">
+    <button id="btnUsuario" class="btn-user" title="Conta e usuários">
+      <span class="avatar" id="userAvatar">—</span>
+      <span class="userinfo">
+        <span class="unome" id="userNome">—</span>
+        <span class="ulogin" id="userLogin"></span>
+      </span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <div class="menu" id="menuUsuario" hidden>
+      <button id="menuUsuarios">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm14 14v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Gerenciar usuários
+      </button>
+      <a href="/logout">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        Sair
+      </a>
+    </div>
+  </div>
 </header>
 
 <div class="cards" id="cards">
@@ -727,6 +816,33 @@
 </div>
 
 <!-- ================= modal de edicao de setores ================= -->
+<!-- ================= modal de usuarios autorizados ================= -->
+<div id="usuariosModal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="usTitle">
+    <header class="modal-head">
+      <div>
+        <h2 id="usTitle">Usuários autorizados</h2>
+        <p class="modal-sub">Somente quem está nesta lista consegue entrar, mesmo com senha válida no domínio.</p>
+      </div>
+      <button class="modal-x" id="usClose" title="Fechar (Esc)">×</button>
+    </header>
+
+    <div class="modal-body">
+      <label class="sm-section-label" for="usBusca">Adicionar usuário do domínio</label>
+      <input type="search" id="usBusca" class="sm-input" placeholder="Digite login ou nome (mín. 2 letras)…" autocomplete="off">
+      <div class="us-resultados" id="usResultados"></div>
+
+      <div class="sm-section-label" style="margin-top:22px">Cadastrados</div>
+      <div class="us-lista" id="usLista"></div>
+    </div>
+
+    <footer class="modal-foot">
+      <span class="muted" id="usContador"></span>
+      <button class="btn-ghost" id="usFechar">Fechar</button>
+    </footer>
+  </div>
+</div>
+
 <div id="setorModal" class="modal" hidden>
   <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="smTitle">
     <header class="modal-head">
@@ -855,7 +971,15 @@ let sortKey = 'ramal', sortDir = 1;
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
-  return r.json();
+  let corpo = null;
+  try { corpo = await r.json(); } catch { /* resposta sem JSON */ }
+  if (!r.ok) {
+    // 401 = sessao expirada: manda para o login em vez de quebrar a tela
+    if (r.status === 401) { location.href = '/login'; throw new Error('sessão expirada'); }
+    const msg = (corpo && (corpo.erro || corpo.error)) || `falha ${r.status}`;
+    throw new Error(msg);
+  }
+  return corpo;
 }
 
 function fmt(iso) {
@@ -1877,6 +2001,181 @@ async function monitorAindaRodando() {
 document.getElementById('btnMonitor').onclick = runMonitor;
 document.getElementById('sbClose').onclick = hideStatus;
 
+/* ================= usuarios autorizados ================= */
+const US = {
+  modal: document.getElementById('usuariosModal'),
+  busca: document.getElementById('usBusca'),
+  resultados: document.getElementById('usResultados'),
+  lista: document.getElementById('usLista'),
+  contador: document.getElementById('usContador'),
+  timer: null,
+};
+
+/** Iniciais do nome para o avatar (ex.: "Thiago Gomes Possa" -> "TP"). */
+function iniciais(nome) {
+  const p = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!p.length) return '—';
+  if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+  return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+}
+
+async function carregarEu() {
+  try {
+    const eu = await api('/api/eu');
+    document.getElementById('userNome').textContent = eu.nome || eu.login;
+    document.getElementById('userLogin').textContent = eu.login;
+    document.getElementById('userAvatar').textContent = iniciais(eu.nome || eu.login);
+  } catch {
+    // sessao expirou: a proxima requisicao redireciona para o login
+  }
+}
+
+document.getElementById('btnUsuario').onclick = (e) => {
+  e.stopPropagation();
+  const m = document.getElementById('menuUsuario');
+  m.hidden = !m.hidden;
+};
+document.addEventListener('click', () => {
+  document.getElementById('menuUsuario').hidden = true;
+});
+document.getElementById('menuUsuario').onclick = (e) => e.stopPropagation();
+
+document.getElementById('menuUsuarios').onclick = () => {
+  document.getElementById('menuUsuario').hidden = true;
+  usAbrir();
+};
+
+function usFechar() {
+  US.modal.hidden = true;
+  US.busca.value = '';
+  US.resultados.innerHTML = '';
+}
+document.getElementById('usClose').onclick = usFechar;
+document.getElementById('usFechar').onclick = usFechar;
+US.modal.onclick = (e) => { if (e.target === US.modal) usFechar(); };
+
+async function usAbrir() {
+  US.modal.hidden = false;
+  await usCarregarLista();
+}
+
+async function usCarregarLista() {
+  US.lista.innerHTML = '<div class="us-vazio">carregando…</div>';
+  try {
+    const r = await api('/api/usuarios');
+    const rows = r.rows || [];
+    const ativos = rows.filter((u) => u.ativo).length;
+    US.contador.textContent = `${ativos} ativo(s) de ${rows.length} cadastrado(s)`;
+
+    if (!rows.length) {
+      US.lista.innerHTML = '<div class="us-vazio">Nenhum usuário cadastrado.</div>';
+      return;
+    }
+
+    US.lista.innerHTML = rows.map((u) => {
+      const meta = [u.login, u.departamento, u.cargo].filter(Boolean).join(' · ');
+      const acesso = u.ultimo_acesso ? `último acesso ${fmt(u.ultimo_acesso)}` : 'nunca acessou';
+      const proprio = u.login === r.eu;
+      return `<div class="us-row ${u.ativo ? '' : 'inativo'}">
+        <div class="quem">
+          <strong>${u.nome}${proprio ? ' <span class="muted" style="font-weight:400">(você)</span>' : ''}</strong>
+          <span>${meta} · ${acesso}</span>
+        </div>
+        <div class="us-acoes">
+          <button data-acao="${u.ativo ? 'desativar' : 'ativar'}" data-login="${u.login}">${u.ativo ? 'Desativar' : 'Ativar'}</button>
+          ${proprio ? '' : `<button class="perigo" data-acao="remover" data-login="${u.login}">Remover</button>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    US.lista.querySelectorAll('button[data-acao]').forEach((b) => {
+      b.onclick = () => usAcao(b.dataset.acao, b.dataset.login);
+    });
+  } catch {
+    US.lista.innerHTML = '<div class="us-vazio">não foi possível carregar a lista</div>';
+  }
+}
+
+async function usAcao(acao, login) {
+  try {
+    if (acao === 'remover') {
+      if (!confirm(`Remover o acesso de "${login}"?\n\nA sessão dele será encerrada imediatamente.`)) return;
+      await api('/api/usuarios/' + encodeURIComponent(login), { method: 'DELETE' });
+    } else {
+      await api('/api/usuarios/' + encodeURIComponent(login), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ativo: acao === 'ativar' }),
+      });
+    }
+    await usCarregarLista();
+    if (US.busca.value.trim().length >= 2) await usBuscar();
+  } catch (e) {
+    alert('Não foi possível concluir: ' + (e.message || 'erro'));
+  }
+}
+
+/** Busca no AD com debounce (evita uma consulta por tecla). */
+US.busca.oninput = () => {
+  clearTimeout(US.timer);
+  const termo = US.busca.value.trim();
+  if (termo.length < 2) { US.resultados.innerHTML = ''; return; }
+  US.timer = setTimeout(usBuscar, 420);
+};
+
+async function usBuscar() {
+  const termo = US.busca.value.trim();
+  if (termo.length < 2) return;
+  US.resultados.innerHTML = '<div class="us-vazio">consultando o domínio…</div>';
+  try {
+    const r = await api('/api/usuarios/buscar-ad?q=' + encodeURIComponent(termo));
+    const rows = r.rows || [];
+    if (!rows.length) {
+      US.resultados.innerHTML = '<div class="us-vazio">Nenhum usuário encontrado no domínio.</div>';
+      return;
+    }
+    US.resultados.innerHTML = rows.map((u) => {
+      const meta = [u.login, u.departamento, u.cargo].filter(Boolean).join(' · ');
+      return `<div class="us-item ${u.jaCadastrado ? 'ja' : ''}">
+        <div class="quem"><strong>${u.nome || u.login}</strong><span>${meta}</span></div>
+        ${u.jaCadastrado
+          ? '<span class="badge">já cadastrado</span>'
+          : `<button class="us-add" data-json="${encodeURIComponent(JSON.stringify(u))}">Adicionar</button>`}
+      </div>`;
+    }).join('');
+
+    US.resultados.querySelectorAll('button.us-add').forEach((b) => {
+      b.onclick = () => usAdicionar(JSON.parse(decodeURIComponent(b.dataset.json)), b);
+    });
+  } catch (e) {
+    US.resultados.innerHTML = `<div class="us-vazio">Falha ao consultar o domínio: ${e.message || 'erro'}</div>`;
+  }
+}
+
+async function usAdicionar(u, botao) {
+  botao.disabled = true;
+  try {
+    await api('/api/usuarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: u.login, nome: u.nome, email: u.email,
+        departamento: u.departamento, cargo: u.cargo,
+      }),
+    });
+    await usCarregarLista();
+    await usBuscar();
+  } catch (e) {
+    alert('Não foi possível adicionar: ' + (e.message || 'erro'));
+    botao.disabled = false;
+  }
+}
+
+/* fecha modais com Esc */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !US.modal.hidden) usFechar();
+});
+
 async function load() {
   const [phones, stats, scope] = await Promise.all([
     api('/api/phones'), api('/api/stats'), api('/api/scope').catch(() => ({ targets: [] })),
@@ -1989,6 +2288,8 @@ function aplicarFiltrosDaUrl() {
   if (busca) document.getElementById('q').value = busca;
   // o <option> do setor so existe depois de carregar a lista: guarda para depois
   if (setor) document.getElementById('setor').dataset.pendente = setor;
+  // ?usuarios=1 abre direto o gerenciamento de usuarios (link direto)
+  if (p.get('usuarios') === '1') document.getElementById('usuariosModal').dataset.abrir = '1';
 }
 
 /* Se o usuario trocar o tema do sistema com a pagina aberta, o grafico
@@ -1998,7 +2299,11 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 });
 
 aplicarFiltrosDaUrl();
+carregarEu();
 load();
+
+// abre o gerenciamento de usuarios quando pedido pela URL (?usuarios=1)
+if (document.getElementById('usuariosModal').dataset.abrir === '1') usAbrir();
 </script>
 </body>
 </html>

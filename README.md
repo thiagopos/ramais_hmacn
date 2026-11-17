@@ -123,7 +123,7 @@ node src/index.js export --format csv --out telefones.csv
 |---|---|---|
 | `--port` | `8080` | porta |
 | `--host` | `127.0.0.1` | interface de escuta (`0.0.0.0` expõe na rede) |
-| `--password` | de `web-config.json` | senha da tela de login |
+| `--password` | — | obsoleto: a autenticação é pelo Active Directory |
 
 ---
 
@@ -150,26 +150,41 @@ varreduras — o segundo clique recebe `409` e a UI mostra "já existe um em and
 - data do último monitoramento no cabeçalho;
 - painel lateral com ficha técnica completa e histórico de disponibilidade.
 
-### Configuração
+### Autenticação (Active Directory)
 
-Copie o exemplo e ajuste:
+O acesso é validado em **duas etapas independentes**:
+
+1. o **AD prova quem é a pessoa** — bind LDAP com a senha que ela digitou
+2. a tabela `usuarios` decide **se ela pode entrar** (lista fechada)
+
+Quem autentica no domínio mas não está cadastrado recebe uma tela de acesso
+negado. Quem está cadastrado mas foi desativado também.
 
 ```bash
-cp web-config.example.json web-config.json
+cp .env.example .env    # preencha AD_SEARCH_USER e AD_SEARCH_PASSWORD
+node scripts/semear-admin.mjs x344942
 ```
 
-```json
-{
-  "host": "127.0.0.1",
-  "port": 8181,
-  "password": "escolha-uma-senha"
-}
-```
+| Variável | Para que serve |
+|---|---|
+| `AD_URL` | DCs (espaço ou vírgula). Com vários, há failover automático |
+| `AD_BASE_DN` / `AD_DOMAIN` | Base da busca e domínio do UPN |
+| `AD_SEARCH_USER` / `AD_SEARCH_PASSWORD` | **Somente** busca na tela de cadastro |
 
-> `web-config.json` está no `.gitignore` — a senha não vai para o repositório.
+Sobre a senha: ela existe apenas durante a requisição. O AD valida, o sistema
+guarda só o token de sessão. **Nada de senha é gravado no banco.**
 
-Sessão por cookie `HttpOnly` (12 h), senha comparada com SHA-256 em tempo
-constante.
+O login usa bind por **UPN** (`usuario@rede.sp`), sem fallback por DN: neste
+diretório o DN carrega o nome completo e uma OU intermediária
+(`CN=Fulano de Tal,OU=Users,OU=SMS,DC=rede,DC=sp`), impossível de montar a
+partir do login.
+
+### Sessão
+
+Cookie `HttpOnly` + `SameSite=Lax` com um **token aleatório**; o dono da
+sessão, o prazo (12 h) e a revogação vivem na tabela `sessoes`. Remover ou
+desativar um usuário derruba o acesso dele na hora, sem esperar o cookie
+expirar.
 
 ### Gráfico de disponibilidade
 
@@ -313,7 +328,8 @@ src/
     pool.js         concorrência limitada
   web/
     server.js       servidor HTTP + API JSON
-    auth.js         tela de login + sessão por cookie
+    auth.js         telas de login/negado, cookie e token de sessão
+    ldap.js         bind no AD e busca de usuários para o cadastro
     public/index.html  painel de monitoramento
 scripts/
   bench.mjs         benchmark reproduzível (endpoints + carregamento)
@@ -341,8 +357,8 @@ pm2 save
 pm2-startup install    # sobe no boot do Windows (só na primeira vez)
 ```
 
-O `web-config.json` (porta, host e senha) é lido pela CLI `web`, tanto no uso
-direto quanto sob o PM2.
+O `web-config.json` (porta e host) é lido pela CLI `web`, tanto no uso
+direto quanto sob o PM2. As credenciais do AD ficam no `.env`.
 
 > `voip-monitor` aparecer como `stopped` entre ciclos é o **esperado** — o PM2 o
 > acorda no horário do cron. Só `errored` indica problema.
@@ -408,11 +424,12 @@ também sem ninguém clicar no botão do painel.
   manter credenciais conhecidas no código.
 - A ferramenta **não faz força bruta** nem contorna autenticação: a identidade
   vem de respostas SIP públicas do próprio protocolo.
-- A interface web **exige senha**. Sem senha configurada, só escute em
-  `127.0.0.1`.
+- A interface web **exige login** (Active Directory + lista de usuários).
+  Sem `AD_SEARCH_USER`/`AD_SEARCH_PASSWORD` no `.env`, só a busca do cadastro
+  fica indisponível — o login continua funcionando.
 - O inventário revela ramal, MAC, IP e modelo — trate o `voip.sqlite` como
   **dado sensível** (já está no `.gitignore`).
-- Use uma senha forte em `web-config.json`.
+- O `.env` guarda as credenciais de busca do AD e também está no `.gitignore`.
 
 ---
 

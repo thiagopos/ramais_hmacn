@@ -21,7 +21,8 @@
     "server": "node scripts/supervisor.mjs",
     "bench": "node scripts/bench.mjs",
     "rebuild-stats": "node scripts/rebuild-stats.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "semear-admin": "node scripts/semear-admin.mjs"
   },
   "keywords": [
     "voip",
@@ -36,7 +37,9 @@
   ],
   "author": "Thiago Possa",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "ldapjs": "^3.0.7"
+  },
   "files": [
     "src",
     "scripts",

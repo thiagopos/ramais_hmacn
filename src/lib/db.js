@@ -15,7 +15,7 @@ import path from 'node:path';
  * Versao do schema. Suba este numero sempre que migrate() mudar, para que
  * bancos existentes sejam atualizados na proxima abertura.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Caminhos ja migrados NESTE processo (evita rodar migrate a cada request). */
 const prontos = new Set();
@@ -270,6 +270,33 @@ function migrate(db) {
       key   TEXT PRIMARY KEY,
       value TEXT
     );
+
+    -- Usuarios autorizados (lista fechada): quem nao esta aqui nao entra,
+    -- mesmo com senha valida no Active Directory.
+    CREATE TABLE IF NOT EXISTS usuarios (
+      login         TEXT PRIMARY KEY,     -- sAMAccountName do AD
+      nome          TEXT NOT NULL,
+      email         TEXT,
+      departamento  TEXT,
+      cargo         TEXT,
+      ativo         INTEGER NOT NULL DEFAULT 1,
+      criado_por    TEXT,
+      criado_em     TEXT NOT NULL,
+      ultimo_acesso TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_usuarios_ativo ON usuarios(ativo);
+
+    -- Sessoes do servidor. O cookie leva apenas um token aleatorio; o dono
+    -- da sessao e seu prazo vivem aqui (nao no cliente).
+    CREATE TABLE IF NOT EXISTS sessoes (
+      token      TEXT PRIMARY KEY,
+      login      TEXT NOT NULL,
+      criado_em  TEXT NOT NULL,
+      expira_em  TEXT NOT NULL,
+      ip         TEXT,
+      user_agent TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessoes_expira ON sessoes(expira_em);
   `);
 
   // Indicadores de estabilidade (historico de amostras).
@@ -943,4 +970,131 @@ export function editarSetor(db, { setorId, setor, andar, predio, ala }) {
     .run(scanId, '*', 'setor_editado', `${antes} -> ${depois}`, new Date().toISOString());
 
   return { ok: true, semMudanca: false };
+}
+
+/* =====================================================================
+   USUARIOS AUTORIZADOS E SESSOES
+   Lista fechada: autenticar no AD so prova a identidade; o ACESSO depende
+   de existir uma linha ativa aqui.
+   ===================================================================== */
+
+/** Usuario autorizado pelo login, ou null. */
+export function obterUsuario(db, login) {
+  return db.prepare(`SELECT * FROM usuarios WHERE login = ?`).get(String(login || '').trim().toLowerCase()) || null;
+}
+
+/** Todos os usuarios (para a tela de cadastro). */
+export function listarUsuarios(db) {
+  return db.prepare(
+    `SELECT login, nome, email, departamento, cargo, ativo, criado_por, criado_em, ultimo_acesso
+     FROM usuarios ORDER BY ativo DESC, nome COLLATE NOCASE`,
+  ).all();
+}
+
+/**
+ * Cadastra (ou atualiza) um usuario autorizado.
+ * O login vem do AD e e sempre minusculo — o sAMAccountName nao diferencia caixa.
+ */
+export function salvarUsuario(db, { login, nome, email, departamento, cargo, criadoPor }) {
+  const l = String(login || '').trim().toLowerCase();
+  if (!l) return { ok: false, erro: 'login obrigatorio' };
+  if (!nome || !String(nome).trim()) return { ok: false, erro: 'nome obrigatorio' };
+
+  const agora = new Date().toISOString();
+  const existia = obterUsuario(db, l);
+
+  db.prepare(
+    `INSERT INTO usuarios (login, nome, email, departamento, cargo, ativo, criado_por, criado_em)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT(login) DO UPDATE SET
+       nome = excluded.nome, email = excluded.email,
+       departamento = excluded.departamento, cargo = excluded.cargo, ativo = 1`,
+  ).run(l, String(nome).trim(), email || null, departamento || null, cargo || null, criadoPor || null, agora);
+
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m, '*',
+      existia ? 'usuario_reativado' : 'usuario_cadastrado',
+      `${l} (${nome}) por ${criadoPor || 'sistema'}`, agora);
+
+  return { ok: true, criado: !existia };
+}
+
+/** Remove o acesso de um usuario. */
+export function removerUsuario(db, login, por) {
+  const l = String(login || '').trim().toLowerCase();
+  const u = obterUsuario(db, l);
+  if (!u) return { ok: false, erro: 'usuario nao encontrado' };
+
+  db.prepare(`DELETE FROM usuarios WHERE login = ?`).run(l);
+  db.prepare(`DELETE FROM sessoes WHERE login = ?`).run(l); // derruba a sessao na hora
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m, '*',
+      'usuario_removido', `${l} (${u.nome}) por ${por || 'sistema'}`, new Date().toISOString());
+
+  return { ok: true };
+}
+
+/** Liga/desliga o acesso sem apagar o cadastro. */
+export function alternarUsuario(db, login, ativo, por) {
+  const l = String(login || '').trim().toLowerCase();
+  const u = obterUsuario(db, l);
+  if (!u) return { ok: false, erro: 'usuario nao encontrado' };
+
+  db.prepare(`UPDATE usuarios SET ativo = ? WHERE login = ?`).run(ativo ? 1 : 0, l);
+  if (!ativo) db.prepare(`DELETE FROM sessoes WHERE login = ?`).run(l);
+  db.prepare(`INSERT INTO events (scan_id, ip, event, detail, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .run(db.prepare(`SELECT IFNULL(MAX(id), 0) m FROM scans`).get().m, '*',
+      ativo ? 'usuario_ativado' : 'usuario_desativado',
+      `${l} por ${por || 'sistema'}`, new Date().toISOString());
+
+  return { ok: true };
+}
+
+/** Registra o ultimo acesso do usuario. */
+export function marcarAcesso(db, login) {
+  db.prepare(`UPDATE usuarios SET ultimo_acesso = ? WHERE login = ?`)
+    .run(new Date().toISOString(), String(login || '').trim().toLowerCase());
+}
+
+/* ---- sessoes ---- */
+
+export function criarSessao(db, { token, login, ip, userAgent, horas = 12 }) {
+  const agora = new Date();
+  const expira = new Date(agora.getTime() + horas * 3600 * 1000);
+  db.prepare(
+    `INSERT INTO sessoes (token, login, criado_em, expira_em, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(token, login, agora.toISOString(), expira.toISOString(), ip || null, userAgent || null);
+  return expira;
+}
+
+/** Sessao valida (existe, nao expirou e o usuario continua ativo) ou null. */
+export function obterSessao(db, token) {
+  if (!token) return null;
+  const s = db.prepare(`SELECT * FROM sessoes WHERE token = ?`).get(token);
+  if (!s) return null;
+  if (new Date(s.expira_em).getTime() < Date.now()) {
+    db.prepare(`DELETE FROM sessoes WHERE token = ?`).run(token);
+    return null;
+  }
+  const u = obterUsuario(db, s.login);
+  if (!u || !u.ativo) {
+    db.prepare(`DELETE FROM sessoes WHERE token = ?`).run(token);
+    return null;
+  }
+  return { ...s, usuario: u };
+}
+
+export function apagarSessao(db, token) {
+  db.prepare(`DELETE FROM sessoes WHERE token = ?`).run(token);
+}
+
+/** Limpeza de sessoes expiradas (chamada no ciclo de monitoramento). */
+export function limparSessoesExpiradas(db) {
+  const r = db.prepare(`DELETE FROM sessoes WHERE expira_em < ?`).run(new Date().toISOString());
+  return r.changes || 0;
+}
+
+/** Quantos usuarios ativos existem (usado para semear o primeiro admin). */
+export function contarUsuariosAtivos(db) {
+  return db.prepare(`SELECT COUNT(*) c FROM usuarios WHERE ativo = 1`).get().c;
 }
