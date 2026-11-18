@@ -762,13 +762,21 @@ f.onload = function () {
   try {
     const d = f.contentDocument;
     const state = CFG.click;
-    if (CFG.row < 0) return;
+    // sem ?row= so executa a acao pedida em ?click= (ex.: ordenar uma coluna
+    // ou abrir o gerenciamento de usuarios); com row, abre o painel lateral
+    if (CFG.row < 0 && !state) return;
     let tries = 0;
     const t = setInterval(function () {
       const rows = d.querySelectorAll('#rows tr');
-      if (rows[CFG.row]) {
-        rows[CFG.row].click();
+      // espera a tabela popular antes de agir (o iframe carrega antes dos dados)
+      if (!rows.length || (CFG.row >= 0 && !rows[CFG.row])) {
+        if (++tries <= 60) return;
         clearInterval(t);
+        return;
+      }
+      clearInterval(t);
+      if (CFG.row >= 0) rows[CFG.row].click();
+      {
         const sel = d.getElementById("status");
         if (state && sel && Array.from(sel.options).some(function (o) { return o.value === state; })) {
           sel.value = state;
@@ -808,7 +816,16 @@ f.onload = function () {
         if (state === "usuarios") {
           if (typeof d.defaultView.usAbrir === "function") d.defaultView.usAbrir();
         }
-      } else if (++tries > 40) clearInterval(t);
+        // ordena por uma coluna (?click=col:quedas ou col:quedas:2)
+        if (state.indexOf("col:") === 0) {
+          const p = state.split(":");
+          const th = d.querySelector('th[data-k="' + p[1] + '"]');
+          if (th) {
+            th.click();
+            if (p[2] === "2") setTimeout(function () { th.click(); }, 300);
+          }
+        }
+      }
     }, 150);
   } catch (e) { /* ignora */ }
 };
