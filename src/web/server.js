@@ -11,6 +11,7 @@
  *   POST /api/monitor     dispara um ciclo agora (retorna ao final)
  */
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -31,7 +32,7 @@ import {
   SESSAO_HORAS, cookieLimpo, cookieSessao,
   gerarToken, paginaLogin, paginaNegado, tokenDaRequisicao, esc,
 } from './auth.js';
-import { autenticar, buscarUsuarios } from './ldap.js';
+import { autenticar, buscarUsuarios, buscarPorLogin } from './ldap.js';
 import { carregarConfigAd } from '../../config/ad.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -266,7 +267,7 @@ async function readJsonBody(req, limit = 64 * 1024) {
   }
 }
 
-export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1' } = {}) {
+export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1', ssl = null } = {}) {
   // garante schema
   const dbBoot = openDb(dbPath);
 
@@ -649,6 +650,40 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         }
       }
 
+      /**
+       * Busca UM usuario pelo login exato — comportamento do hmacn-acesso.
+       *
+       * Devolve tambem `local`: o cadastro que ja existe neste sistema. O AD
+       * responde "quem e a pessoa"; o `local` responde "ja tem cadastro aqui".
+       * Sem isso a tela so descobriria no envio, com o formulario ja preenchido.
+       */
+      if (route.startsWith('/api/usuarios/ad/') && req.method === 'GET') {
+        const login = decodeURIComponent(route.slice('/api/usuarios/ad/'.length)).trim();
+        if (!login) return json(req, res, 200, { encontrado: false });
+
+        // falha ao ler o banco nao derruba a busca no AD (so perde o aviso)
+        let local = { existe: false };
+        try {
+          const db = openDb(dbPath);
+          const u = obterUsuario(db, login);
+          db.close();
+          if (u) {
+            local = {
+              existe: true, login: u.login, nome: u.nome, email: u.email,
+              departamento: u.departamento, cargo: u.cargo, ativo: !!u.ativo,
+            };
+          }
+        } catch { /* segue sem o local */ }
+
+        const r = await buscarPorLogin(adConfig, login);
+        if (r.erro) {
+          console.warn(`[ad] busca por login "${login}": ${r.erro}`);
+          return json(req, res, 502, { encontrado: false, local, erro: r.erro });
+        }
+        if (!r.encontrado) return json(req, res, 200, { encontrado: false, local });
+        return json(req, res, 200, { encontrado: true, pessoa: r.pessoa, local });
+      }
+
       if (route === '/api/usuarios' && req.method === 'POST') {
         const body = await readJsonBody(req);
         const db = openDb(dbPath);
@@ -801,10 +836,45 @@ go();
   console.log(`[${stamp()}] Monitor VoIP iniciado`);
   console.log(`[${stamp()}]   URL:   http://${host}:${port}`);
   console.log(`[${stamp()}]   Banco: ${path.resolve(dbPath)}`);
-  console.log(`[${stamp()}]   Auth:  ${auth ? 'login (senha configurada)' : 'DESATIVADA'}`);
+  console.log(`[${stamp()}]   Auth:  login pelo Active Directory`);
+
+  // -------------------------------------------------------------------
+  // HTTPS em paralelo (o mesmo handler atende os dois protocolos).
+  //
+  // Mantemos o HTTP porque o endereco http://host:porta ja esta em uso e
+  // porque a porta 443 desta maquina pertence ao sistema de visitantes.
+  // O certificado e o mesmo usado nas outras aplicacoes do hospital:
+  // CA local + certificado de servidor (nunca autoassinado — o Firefox
+  // recusa certificado de CA usado como servidor).
+  // -------------------------------------------------------------------
+  let servidorHttps = null;
+  const certPath = ssl?.cert ? (path.isAbsolute(ssl.cert) ? ssl.cert : path.join(RAIZ, ssl.cert)) : null;
+  const keyPath = ssl?.key ? (path.isAbsolute(ssl.key) ? ssl.key : path.join(RAIZ, ssl.key)) : null;
+
+  if (certPath && keyPath) {
+    try {
+      const cert = fs.readFileSync(certPath);
+      const key = fs.readFileSync(keyPath);
+      servidorHttps = https.createServer({ cert, key }, server.listeners('request')[0]);
+      await new Promise((resolve, reject) => {
+        servidorHttps.once('error', reject);
+        servidorHttps.listen(ssl.port, host, resolve);
+      });
+      console.log(`[${stamp()}]   HTTPS: https://${host}:${ssl.port}  (${path.basename(certPath)})`);
+    } catch (err) {
+      // HTTPS e desejavel, nao obrigatorio: sem ele a interface continua em HTTP
+      console.warn(`[${stamp()}]   HTTPS indisponivel: ${err.message}`);
+      servidorHttps = null;
+    }
+  } else {
+    console.log(`[${stamp()}]   HTTPS: desativado (defina ssl.cert e ssl.key em web-config.json)`);
+  }
 
   const shutdown = (sig) => {
     console.log(`[${stamp()}] recebido ${sig}, encerrando...`);
+    if (servidorHttps) {
+      try { servidorHttps.close(); } catch { /* ignora */ }
+    }
     server.close(() => {
       try { fecharConexoes(); } catch { /* ignora */ }
       process.exit(0);

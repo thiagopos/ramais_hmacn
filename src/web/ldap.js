@@ -120,7 +120,7 @@ export async function autenticar(cfg, login, senha) {
 }
 
 /**
- * Busca usuarios no AD para a tela de cadastro.
+ * Busca usuarios no AD para a tela de cadastro (por login OU nome).
  * Usa uma conta de servico (so leitura), nunca a senha do usuario logado.
  *
  * @param {object} cfg
@@ -135,63 +135,16 @@ export async function buscarUsuarios(cfg, termo, limite = 25) {
     throw new Error('Busca no AD não configurada. Defina AD_SEARCH_USER e AD_SEARCH_PASSWORD no .env.');
   }
 
-  // escapa metacaracteres de filtro LDAP: * ( ) \ NUL
-  const seguro = t.replace(/\\/g, '\\5c').replace(/\*/g, '\\2a')
-    .replace(/\(/g, '\\28').replace(/\)/g, '\\29').replace(/\x00/g, '\\00');
-
+  const seguro = escaparFiltro(t);
+  // contas desativadas (bit ACCOUNTDISABLE) ficam de fora
   const filtro = `(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))`
     + `(|(sAMAccountName=${seguro}*)(displayName=*${seguro}*)(mail=${seguro}*)))`;
 
   const client = criarCliente(cfg, { timeout: cfg.timeoutMs, connectTimeout: 4000 });
   try {
     await bindProtegido(client, `${cfg.buscaUsuario}@${cfg.domain}`, cfg.buscaSenha, cfg.timeoutMs);
-
-    return await new Promise((resolve, reject) => {
-      const achados = [];
-      let terminou = false;
-      const limpar = () => { clearTimeout(timer); client.removeListener('error', aoFalhar); };
-      const aoFalhar = (err) => {
-        if (terminou) return;
-        terminou = true; limpar();
-        reject(new Error('LDAP: ' + (err?.message || String(err))));
-      };
-      const timer = setTimeout(() => {
-        if (terminou) return;
-        terminou = true; limpar();
-        if (achados.length) return resolve(achados); // parcial e util
-        reject(new Error('LDAP: tempo esgotado na busca'));
-      }, cfg.timeoutMs);
-
-      client.once('error', aoFalhar);
-      client.search(cfg.baseDN, {
-        filter: filtro, scope: 'sub', attributes: ATRIBUTOS, sizeLimit: limite, timeLimit: 20,
-      }, (err, res) => {
-        if (err) return aoFalhar(err);
-        res.on('searchEntry', (entry) => {
-          const o = {};
-          for (const a of entry.attributes || []) {
-            const nome = a.type || a.name;
-            if (nome) o[nome] = (a.values || []).length === 1 ? a.values[0] : a.values;
-          }
-          achados.push(mapear(o));
-        });
-        res.on('end', () => {
-          if (terminou) return;
-          terminou = true; limpar();
-          resolve(achados);
-        });
-        res.on('error', (e) => {
-          const msg = String(e?.message || e).toLowerCase();
-          // estourar o limite de resultados nao e erro: ja temos o que mostrar
-          if (msg.includes('size limit') && achados.length) {
-            if (terminou) return;
-            terminou = true; limpar();
-            return resolve(achados);
-          }
-          aoFalhar(e);
-        });
-      });
-    });
+    const achados = await buscarEntradas(client, cfg, filtro, ATRIBUTOS, limite);
+    return achados.map(mapear);
   } finally {
     try { client.destroy(); } catch { /* ja fechado */ }
   }
@@ -210,4 +163,115 @@ export function mapear(raw) {
     telefone: um(raw.telephoneNumber),
     dn: um(raw.distinguishedName),
   };
+}
+
+/**
+ * Busca UM usuario pelo login exato (sAMAccountName).
+ *
+ * Reproduz o comportamento do hmacn-acesso:
+ *  - retry automatico em erro de CONEXAO (2 tentativas); senha errada nao
+ *    repete, porque nao adianta
+ *  - falha de rede e distinguida de "nao encontrado": a primeira vira erro
+ *    502 com mensagem, a segunda vira resposta vazia
+ *
+ * @param {object} cfg
+ * @param {string} login sAMAccountName (ex.: x344942)
+ * @returns {Promise<{encontrado: boolean, pessoa?: object, erro?: string, conexao?: boolean}>}
+ */
+export async function buscarPorLogin(cfg, login) {
+  const alvo = String(login || '').trim();
+  if (!alvo) return { encontrado: false };
+  if (!cfg.buscaUsuario || !cfg.buscaSenha) {
+    return {
+      encontrado: false,
+      erro: 'Busca no AD não configurada. Defina AD_SEARCH_USER e AD_SEARCH_PASSWORD no .env.',
+    };
+  }
+
+  const filtro = '(sAMAccountName=' + escaparFiltro(alvo) + ')';
+  let ultimoErro = null;
+
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    const client = criarCliente(cfg, { timeout: cfg.timeoutMs, connectTimeout: 4000 });
+    try {
+      await bindProtegido(client, `${cfg.buscaUsuario}@${cfg.domain}`, cfg.buscaSenha, cfg.timeoutMs);
+      const achados = await buscarEntradas(client, cfg, filtro, ATRIBUTOS, 5);
+      if (!achados.length) return { encontrado: false };
+      return { encontrado: true, pessoa: mapear(achados[0]) };
+    } catch (err) {
+      ultimoErro = err;
+      // so vale repetir quando o problema e de rede, nao de credencial/filtro
+      if (!ehErroConexao(err) || tentativa === 2) break;
+    } finally {
+      try { client.destroy(); } catch { /* ja fechado */ }
+    }
+  }
+
+  return {
+    encontrado: false,
+    conexao: ehErroConexao(ultimoErro),
+    erro: 'Falha ao consultar o Active Directory: ' + (ultimoErro?.message || String(ultimoErro)),
+  };
+}
+
+/**
+ * Escapa metacaracteres de filtro LDAP: * ( ) \ e NUL.
+ * Sem isso, um login como "x)(sAMAccountName=*" quebraria o filtro.
+ */
+export function escaparFiltro(str) {
+  return String(str || '')
+    .replace(/\\/g, '\\5c')
+    .replace(/\*/g, '\\2a')
+    .replace(/\(/g, '\\28')
+    .replace(/\)/g, '\\29')
+    .replace(/\x00/g, '\\00');
+}
+
+/** Executa uma busca ja autenticada e devolve os entries crus. */
+function buscarEntradas(client, cfg, filtro, atributos, limite) {
+  return new Promise((resolve, reject) => {
+    const achados = [];
+    let terminou = false;
+    const limpar = () => { clearTimeout(timer); client.removeListener('error', aoFalhar); };
+    const aoFalhar = (err) => {
+      if (terminou) return;
+      terminou = true; limpar();
+      reject(new Error('LDAP: ' + (err?.message || String(err))));
+    };
+    const timer = setTimeout(() => {
+      if (terminou) return;
+      terminou = true; limpar();
+      if (achados.length) return resolve(achados);
+      reject(new Error('LDAP: tempo esgotado na busca'));
+    }, cfg.timeoutMs);
+
+    client.once('error', aoFalhar);
+    client.search(cfg.baseDN, {
+      filter: filtro, scope: 'sub', attributes: atributos, sizeLimit: limite, timeLimit: 20,
+    }, (err, res) => {
+      if (err) return aoFalhar(err);
+      res.on('searchEntry', (entry) => {
+        const o = {};
+        for (const a of entry.attributes || []) {
+          const nome = a.type || a.name;
+          if (nome) o[nome] = (a.values || []).length === 1 ? a.values[0] : a.values;
+        }
+        achados.push(o);
+      });
+      res.on('end', () => {
+        if (terminou) return;
+        terminou = true; limpar();
+        resolve(achados);
+      });
+      res.on('error', (e) => {
+        const msg = String(e?.message || e).toLowerCase();
+        if (msg.includes('size limit') && achados.length) {
+          if (terminou) return;
+          terminou = true; limpar();
+          return resolve(achados);
+        }
+        aoFalhar(e);
+      });
+    });
+  });
 }

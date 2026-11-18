@@ -1,0 +1,34 @@
+[req]
+distinguished_name = dn
+prompt = no
+[dn]
+C = BR
+ST = SP
+L = Sao Paulo
+O = HMACN Alipio Correa Netto
+CN = smshmacn007
+[ext_servidor]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid, issuer
+subjectAltName = @alt
+[alt]
+DNS.1 = smshmacn007
+DNS.2 = smshmacn007.rede.sp
+DNS.3 = smshmacn397
+DNS.4 = smshmacn397.rede.sp
+DNS.5 = smshmacn394
+DNS.6 = smshmacn394.rede.sp
+DNS.7 = smshmacn369
+DNS.8 = smshmacn369.rede.sp
+DNS.9 = smshmacn370
+DNS.10 = smshmacn370.rede.sp
+DNS.11 = localhost
+IP.1 = 192.168.51.7
+IP.2 = 192.168.52.255
+IP.3 = 192.168.52.245
+IP.4 = 192.168.52.218
+IP.5 = 192.168.52.219
+IP.6 = 127.0.0.1

@@ -1,0 +1,13 @@
+[req]
+distinguished_name = dn
+prompt = no
+[dn]
+C = BR
+ST = SP
+L = Sao Paulo
+O = HMACN Alipio Correa Netto
+CN = HMACN Acesso - Autoridade Certificadora Local
+[v3_ca]
+basicConstraints = critical, CA:TRUE, pathlen:0
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash

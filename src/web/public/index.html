@@ -650,6 +650,10 @@
   .us-acoes button:hover { color: var(--text); border-color: var(--line-strong); filter: none; }
   .us-acoes button.perigo:hover { color: var(--bad-text); border-color: var(--bad-border); background: var(--bad-soft); }
   .us-vazio { padding: 22px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  .us-hint { min-height: 17px; margin-top: 7px; font-size: 12px; color: var(--muted); }
+  .us-hint.ok { color: var(--ok-text); }
+  .us-hint.aviso { color: var(--warn-text); }
+  .us-hint.erro { color: var(--bad-text); }
 
   /* ---- barra de rolagem ---- */
   * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
@@ -830,6 +834,7 @@
     <div class="modal-body">
       <label class="sm-section-label" for="usBusca">Adicionar usuário do domínio</label>
       <input type="search" id="usBusca" class="sm-input" placeholder="Digite login ou nome (mín. 2 letras)…" autocomplete="off">
+      <div class="us-hint" id="usDica"></div>
       <div class="us-resultados" id="usResultados"></div>
 
       <div class="sm-section-label" style="margin-top:22px">Cadastrados</div>
@@ -2119,9 +2124,46 @@ async function usAcao(acao, login) {
 US.busca.oninput = () => {
   clearTimeout(US.timer);
   const termo = US.busca.value.trim();
+  document.getElementById('usDica').textContent = '';
   if (termo.length < 2) { US.resultados.innerHTML = ''; return; }
   US.timer = setTimeout(usBuscar, 420);
 };
+
+/**
+ * Consulta o login EXATO assim que ele parece completo (comportamento do
+ * hmacn-acesso): antes de o usuario clicar em "Adicionar", a tela ja sabe
+ * quem e a pessoa e se ela ja tem cadastro aqui.
+ */
+US.busca.onkeydown = (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const termo = US.busca.value.trim();
+  if (termo.length >= 2) usBuscarPorLogin(termo);
+};
+
+async function usBuscarPorLogin(login) {
+  const dica = document.getElementById('usDica');
+  dica.className = 'us-hint';
+  dica.textContent = 'consultando o login no domínio…';
+  try {
+    const r = await api('/api/usuarios/ad/' + encodeURIComponent(login));
+    if (r.local?.existe) {
+      dica.className = 'us-hint aviso';
+      dica.textContent = `${r.local.nome} já está cadastrado neste sistema (${r.local.ativo ? 'ativo' : 'inativo'}).`;
+      return;
+    }
+    if (r.encontrado) {
+      dica.className = 'us-hint ok';
+      dica.textContent = `${r.pessoa.nome} — ${[r.pessoa.departamento, r.pessoa.cargo].filter(Boolean).join(' · ') || 'sem departamento'}`;
+      return;
+    }
+    dica.className = 'us-hint';
+    dica.textContent = 'Login não encontrado no domínio.';
+  } catch (e) {
+    dica.className = 'us-hint erro';
+    dica.textContent = e.message || 'falha ao consultar o domínio';
+  }
+}
 
 async function usBuscar() {
   const termo = US.busca.value.trim();

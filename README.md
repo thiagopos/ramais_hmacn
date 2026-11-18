@@ -186,6 +186,34 @@ sessão, o prazo (12 h) e a revogação vivem na tabela `sessoes`. Remover ou
 desativar um usuário derruba o acesso dele na hora, sem esperar o cookie
 expirar.
 
+### HTTPS
+
+A interface roda em **HTTPS na porta 8443** (e continua em HTTP na 8181, para
+não quebrar endereços já em uso). A porta 443 desta máquina pertence ao sistema
+de visitantes.
+
+O certificado é o **mesmo das demais aplicações do hospital** (`certs/`): uma CA
+local (`ca.crt`) mais um certificado de servidor assinado por ela. Não é
+autoassinado de propósito — um certificado de CA usado como certificado de
+servidor é recusado pelo Firefox (`MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY`),
+embora o Chrome aceite. A estrutura de dois níveis evita essa diferença.
+
+Máquinas que já têm a CA instalada (por qualquer aplicação do hospital) confiam
+no VoIP automaticamente. Em máquina nova, rode
+`certs/instalar-certificado.bat` como administrador.
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 8181,
+  "ssl": { "cert": "certs/servidor.crt", "key": "certs/servidor.key", "port": 8443 }
+}
+```
+
+Sem a seção `ssl`, o servidor sobe apenas em HTTP. As chaves privadas
+(`*.key`) estão no `.gitignore`; a CA e o certificado público são versionados
+para facilitar a instalação nas máquinas.
+
 ### Gráfico de disponibilidade
 
 No painel lateral de cada aparelho, o histórico é montado **no relógio dos

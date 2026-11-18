@@ -146,10 +146,15 @@ async function main() {
       // e mais usada. A flag --password continua aceita e ignorada, para
       // nao quebrar scripts existentes.
       if (args.password) console.warn('aviso: --password nao e mais usado (login pelo Active Directory).');
+      // HTTPS: certificado da CA local do hospital (mesmo das outras aplicacoes)
+      const ssl = conf.ssl && conf.ssl.cert && conf.ssl.key
+        ? { cert: conf.ssl.cert, key: conf.ssl.key, port: Number(conf.ssl.port || 8443) }
+        : null;
       await startWeb({
         dbPath,
         port: args.port ? Number(args.port) : Number(conf.port || 8080),
         host: args.host ? String(args.host) : String(conf.host || '127.0.0.1'),
+        ssl,
       });
       break;
     }
