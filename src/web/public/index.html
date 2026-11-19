@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Monitor VoIP — Telefones ALE</title>
+<title>Telefones — DTI Gestão</title>
 <style>
   /* ===================================================================
      TOKENS
@@ -128,13 +128,14 @@
   }
   ::selection { background: var(--accent-soft); color: var(--text); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* ---- cabecalho padronizado: as duas telas usam esta mesma estrutura,
+   *      com larguras fixas, para o layout nao "pular" ao trocar de aba ---- */
   header {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    display: flex; align-items: center; gap: 20px;
     padding: 13px 24px; background: var(--surface); border-bottom: 1px solid var(--line);
     position: sticky; top: 0; z-index: 10; box-shadow: var(--shadow-sm);
   }
-  h1 { font-size: 16.5px; margin: 0; font-weight: 650; letter-spacing: -.015em; }
-  h1 span { color: var(--muted); font-weight: 400; font-size: 12.5px; margin-left: 9px; letter-spacing: 0; }
+  h1 { font-size: 16.5px; margin: 0; font-weight: 650; letter-spacing: -.015em; white-space: nowrap; }
   .spacer { flex: 1; }
   .lastcheck {
     display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25;
@@ -142,7 +143,6 @@
   }
   .lc-label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
   .lc-value { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  #msg { color: var(--muted); font-size: 12.5px; margin-right: 10px; }
 
   /* ---- barra de status do monitoramento ---- */
   .statusbar {
@@ -689,7 +689,7 @@
 </head>
 <body>
 <header>
-  <h1>Kit DTI <span id="subtitle">inventário de telefones IP</span></h1>
+  <h1>DTI Gestão</h1>
   <nav class="ferramentas">
     <a href="/" class="ativa">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>
@@ -2265,12 +2265,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 async function load() {
-  const [phones, stats, scope] = await Promise.all([
-    api('/api/phones'), api('/api/stats'), api('/api/scope').catch(() => ({ targets: [] })),
+  const [phones, stats] = await Promise.all([
+    api('/api/phones'), api('/api/stats'),
   ]);
-  if (scope.targets?.length) {
-    document.getElementById('subtitle').textContent = 'rede ' + scope.targets.join(' + ');
-  }
   all = phones.rows;
 
   // preenche o filtro de setores (mantendo a selecao atual)

@@ -1,7 +1,7 @@
 {
-  "name": "voip-scanner",
+  "name": "dti-gestao",
   "version": "1.0.0",
-  "description": "InventÃ¡rio e monitoramento de telefones IP: descoberta com prova TLS/HTTP, ramal via SIP OPTIONS sem login, SQLite e interface web",
+  "description": "DTI Gestao - inventario e monitoramento de equipamentos de rede do HMACN",
   "type": "module",
   "main": "src/index.js",
   "bin": {
@@ -23,7 +23,10 @@
     "rebuild-stats": "node scripts/rebuild-stats.mjs",
     "smoke": "node scripts/smoke.mjs",
     "semear-admin": "node scripts/semear-admin.mjs",
-    "migrar-locais": "node scripts/migrar-locais.mjs"
+    "migrar-locais": "node scripts/migrar-locais.mjs",
+    "coletar-impressoras": "node scripts/coletar-impressoras.mjs",
+    "importar-impressoras": "node scripts/importar-impressoras.mjs",
+    "gerar-certificado": "node scripts/gerar-certificado.mjs"
   },
   "keywords": [
     "voip",

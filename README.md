@@ -1,14 +1,16 @@
-# VoIP Scanner — inventário e monitoramento de telefones IP
+# DTI Gestão — ferramentas de inventário e monitoramento do hospital
 
-Ferramenta em Node.js para **descobrir, identificar e monitorar** telefones IP em
-rede, com persistência em SQLite e interface web.
+Suíte de ferramentas do **DTI (Departamento de Tecnologia da Informação)** do
+Hospital Municipal Alípio Corrêa Netto. Uma única aplicação web, com login pelo
+Active Directory, reunindo o inventário de equipamentos de rede.
 
-Feita originalmente para telefones **Alcatel-Lucent Enterprise (ALE)**, com a
-identificação (ramal, modelo, firmware, serial, MAC) obtida **sem login** via
-SIP `OPTIONS` sobre TCP.
+| Ferramenta | O que faz |
+|---|---|
+| **Telefones** | Descobre, identifica e monitora telefones IP (ALE) — ramal, modelo, firmware, estabilidade e histórico de quedas |
+| **Impressoras** | Lê impressoras por SNMP — nível de toner, unidade de imagem, fusor, contadores de página e alerta de equipamento remanejado |
 
-Zero dependências: usa apenas módulos nativos do Node (`net`, `tls`, `dgram`,
-`http`, `node:sqlite`). Requer **Node >= 22.5**.
+Em desenvolvimento: **Locais** (árvore de setores com hierarquia) e
+**Analisador de Arquivos** (compartilhamentos do servidor).
 
 ---
 
@@ -25,7 +27,11 @@ Zero dependências: usa apenas módulos nativos do Node (`net`, `tls`, `dgram`,
 
 ---
 
-## Como funciona
+## Telefones: como funciona
+
+Feita originalmente para telefones **Alcatel-Lucent Enterprise (ALE)**, com a
+identificação (ramal, modelo, firmware, serial, MAC) obtida **sem login** via
+SIP `OPTIONS` sobre TCP.
 
 Quatro etapas, cada uma resolvendo um problema real de descoberta em rede:
 
@@ -80,6 +86,71 @@ conhecidos), então:
 O `OPTIONS` tem timeout curto (500 ms) e alta concorrência, porque o telefone
 real responde em ~10 ms e o IP vazio simplesmente estoura o timeout. Um `/24`
 completo leva menos de 1 segundo.
+
+---
+
+## Impressoras: como funciona
+
+Leitura por **SNMP** (comunidade `public`), usando apenas os OIDs padrão da
+MIB-II Printer (`1.3.6.1.2.1.43`). **Não existe lista de consumíveis por
+modelo**: o nome vem da própria impressora.
+
+| OID | O que traz |
+|---|---|
+| `43.5.1.1.16.1` | nome do modelo (`prtGeneralModelName`) |
+| `43.5.1.1.17.1` | número de série |
+| `43.10.2.1.4.1.1` | contador total de páginas |
+| `43.11.1.1.6/8/9` | descrição, capacidade e nível de cada consumível |
+
+Validado em cinco modelos reais (Samsung SL-M4020ND, HP 408dn, E52645, E57540 e
+E87660 A3), somando **34 consumíveis** com nome, nível, capacidade e part number.
+
+### Armadilhas do net-snmp encontradas em teste
+
+- **`subtree()` derruba o processo.** Chamado mais de uma vez na mesma sessão,
+  dispara `req.doneCb is not a function` e mata o Node. Por isso a coleta usa
+  `get`, nunca `walk`.
+- **Resposta grande não chega.** Um `get` com muitos OIDs estoura o datagrama e
+  a impressora **simplesmente não responde** — parece desligada. As HP têm nomes
+  longos; a coleta lê **um consumível por requisição**.
+
+### Formatos diferentes entre fabricantes
+
+| Situação | Tratamento |
+|---|---|
+| Mono reporta nível real (`3450` de `15000`) | percentual calculado |
+| Colorida reporta porcentagem (`11` de `100`) | usado direto |
+| Nível `-2` (indisponível na MIB) | não vira percentual negativo |
+| Samsung devolve `IMP1757` como modelo | usa o `sysDescr` (`SL-M4020ND`) |
+| Samsung devolve nome de painel (`Bucomaxilo`) | vai para **apelido**, não para modelo |
+
+### Alerta de equipamento remanejado
+
+O cadastro guarda a série esperada em cada IP (`serie_cadastro`); a coleta grava
+a série lida (`serie`). Quando divergem, a impressora é marcada como
+**série trocada**, e o sistema tenta descobrir **de onde veio** o aparelho
+comparando a série lida com a esperada em todos os outros pontos.
+
+Foi assim que apareceu uma rotação de três impressoras:
+
+```
+192.168.49.56 (UTI Adulto)      recebeu o aparelho de 192.168.49.48
+192.168.49.48 (Centro Cirúrgico) recebeu o aparelho de 192.168.49.56
+192.168.49.99 (Pediatria)        recebeu outro da mesma troca
+```
+
+Atenção: alguns firmware devolvem a série com **ponto final** (`ZDEJBQAJ800077Y.`).
+A comparação ignora pontos, espaços e caixa para não gerar falso positivo.
+
+### Peso do banco
+
+O projeto anterior (`printers-snmp`) coletava a cada 30 minutos e **nunca
+apagava**: 577 mil snapshots, 880 mil linhas de consumível e **149 MB** em nove
+meses. Aqui o banco guarda o **estado atual** — a lista lê 103 linhas, não 880
+mil. As tabelas de impressoras ocupam **0,07 MB**.
+
+O histórico (para tendência) é opcional, em tabela separada, com **uma linha por
+dia** em vez de uma por coleta.
 
 ---
 
@@ -256,6 +327,50 @@ SQLite via `node:sqlite`.
 | `v_estabilidade` (view) | regra de estabilidade (window functions) |
 | `v_quedas` (view) | regra dos episódios de queda |
 
+**Impressoras**
+
+| Tabela | Conteúdo |
+|---|---|
+| `impressoras` | IP, série lida, **série do cadastro**, modelo, apelido, setor, local, `local_id`, páginas |
+| `impressora_consumiveis` | último estado de cada consumível (nome, nível, part number, serial) |
+| `impressora_historico` | uma linha por impressora **por dia** (tendência) |
+
+**Locais (setores e sublocais)**
+
+| Tabela | Conteúdo |
+|---|---|
+| `locais` | nome, tipo, **`pai_id`** (opcional), andar, prédio, ala, origem |
+| `local_ramais` | vínculo N:N ramal ↔ local |
+
+**Usuários**
+
+| Tabela | Conteúdo |
+|---|---|
+| `usuarios` | login do AD, nome, e-mail, `ativo` — lista fechada de quem pode entrar |
+| `sessoes` | token de sessão, dono, expiração, IP |
+
+### Hierarquia de locais
+
+Um lugar = uma linha. Telefones e impressoras apontam para o **mesmo** registro,
+em vez de cada um ter seu vocabulário de texto livre.
+
+```sql
+locais(id, nome, tipo, pai_id, andar, predio, ala, origem, ativo)
+```
+
+Regras de exclusão — todas testadas:
+
+| Ação | O que acontece |
+|---|---|
+| Excluir um **pai** | os filhos **não** são apagados: perdem o vínculo e viram raiz |
+| Excluir um local com **impressoras** | elas ficam **livres** (`local_id` NULL), não são apagadas |
+| Excluir um local com **ramais** | o vínculo sai; o ramal continua existindo em `devices` |
+| Criar sem pai | permitido — `pai_id` é opcional, sempre |
+| Criar em ciclo | bloqueado (um local não pode virar filho do próprio descendente) |
+
+A chave de unicidade é **nome + pai + andar**: "Coordenação de Enfermagem" existe
+no 4º e no 5º andar como lugares distintos, e continua assim.
+
 ### Cache materializado
 
 As views `v_estabilidade` e `v_quedas` agregam 100 mil+ amostras com window
@@ -341,32 +456,66 @@ Documentadas porque custaram tempo e podem reaparecer em outras redes:
 ## Estrutura
 
 ```
+config/
+  ad.js               parametros do Active Directory (le .env)
 src/
-  index.js          CLI (scan / enrich / ramais / report / export / web)
-  scan.js           orquestrador da varredura (4 fases)
-  enrich.js         identidade SIP + monitoramento amplo
-  config.js         portas, alvos padrão, fingerprints, expansão CIDR
+  index.js            CLI (scan / enrich / ramais / report / export / web)
+  scan.js             orquestrador da varredura (4 fases)
+  enrich.js           identidade SIP + monitoramento amplo
+  config.js           portas, alvos padrao, fingerprints, expansao CIDR
   lib/
-    sipid.js        SIP OPTIONS TCP -> ramal, modelo, firmware, MAC, serial
-    verify.js       prova de host real (TLS/HTTP) + fingerprint de certificado
-    sip.js          SIP OPTIONS (UDP/TCP)
-    portscan.js     TCP probe + banner HTTP
-    sweep.js        ARP, DNS reverso
-    db.js           schema e persistência SQLite
-    pool.js         concorrência limitada
+    sipid.js          SIP OPTIONS TCP -> ramal, modelo, firmware, MAC, serial
+    verify.js         prova de host real (TLS/HTTP) + fingerprint de certificado
+    sip.js            SIP OPTIONS (UDP/TCP)
+    portscan.js       TCP probe + banner HTTP
+    sweep.js          ARP, DNS reverso
+    db.js             schema e persistencia SQLite
+    pool.js           concorrencia limitada
+    impressoras-snmp.js  leitura SNMP (consumiveis, serie, paginas)
+    impressoras-schema.js tabelas do modulo de impressoras
+    impressoras-db.js    consultas da lista de impressoras
+    locais.js         setores/sublocais com hierarquia pai/filho
   web/
-    server.js       servidor HTTP + API JSON
-    auth.js         telas de login/negado, cookie e token de sessão
-    ldap.js         bind no AD e busca de usuários para o cadastro
-    public/index.html  painel de monitoramento
+    server.js         servidor HTTP/HTTPS + API JSON
+    auth.js           telas de login/negado, cookie e token de sessao
+    ldap.js           bind no AD e busca de usuarios
+    public/
+      index.html      painel de telefones
+      impressoras.html painel de impressoras
+certs/
+  ca.crt              CA local (instalar nas maquinas)
+  servidor.crt/.key   certificado do servidor (HTTPS)
+  instalar-certificado.bat
 scripts/
-  bench.mjs         benchmark reproduzível (endpoints + carregamento)
-  rebuild-stats.mjs reconstrói o cache de estatísticas
-  supervisor.mjs    mantém o servidor no ar (relança se cair)
-  run-server.mjs    runner com log em arquivo e rotação
-  watchdog.cmd      relança o supervisor se a porta estiver fora
-start-server.cmd    atalho para subir o servidor
+  bench.mjs           benchmark reproduzivel (endpoints + carregamento)
+  smoke.mjs           33 verificacoes de fumaca da API
+  rebuild-stats.mjs   reconstroi o cache de estatisticas
+  gerar-certificado.mjs  regenera o certificado para a maquina atual
+  semear-admin.mjs    cadastra o primeiro usuario
+  importar-impressoras.mjs  importa o cadastro do projeto antigo
+  coletar-impressoras.mjs   coleta SNMP de todas as impressoras
+  migrar-locais.mjs   migra setores para a tabela locais (tem --aplicar)
+  supervisor.mjs      mantem o servidor no ar (relanca se cair)
+  run-server.mjs      runner com log em arquivo e rotacao
+  watchdog.cmd        relanca o supervisor se a porta estiver fora
+start-server.cmd      atalho para subir o servidor
 ```
+
+---
+
+## Portabilidade
+
+O projeto foi desenhado para rodar em **qualquer maquina da rede**, nao so na de
+desenvolvimento:
+
+- **nenhum IP ou hostname no codigo** — alvos e portas em `web-config.json`,
+  AD no `.env`, impressoes em banco
+- **certificado regeneravel** — `node scripts/gerar-certificado.mjs` detecta o
+  nome e os IPs da maquina e reassina um certificado novo **reaproveitando a CA**
+  (as maquinas que ja confiam nela nao precisam reinstalar nada)
+- **banco unico e portatil** — `voip.sqlite`, sem servico externo
+- opcoes: `--extra <ip|nome>` para incluir outro endereco, `--todos` para somar
+  a lista existente, `--nova-ca` (exige reinstalar a CA em todas as maquinas)
 
 ---
 
