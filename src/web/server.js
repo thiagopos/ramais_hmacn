@@ -39,6 +39,11 @@ import {
   setoresDasImpressoras, listarConsumiveis,
 } from '../lib/impressoras-db.js';
 import { criarTabelasImpressoras } from '../lib/impressoras-schema.js';
+import {
+  criarTabelasLocais, arvoreLocais, obterLocal, criarLocal, editarLocal, excluirLocal,
+  vincularRamal, desvincularRamal, moverImpressora, ramaisDoLocal,
+  impressorasDoLocal, descendentes,
+} from '../lib/locais.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -277,6 +282,7 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
   const dbBoot = openDb(dbPath);
   // tabelas do modulo de impressoras (criadas na primeira abertura)
   criarTabelasImpressoras(dbBoot);
+  criarTabelasLocais(dbBoot);
 
   // Cache materializado vazio (banco restaurado de backup ou primeiro uso):
   // constroi agora, senao a interface mostraria tudo zerado ate o proximo
@@ -613,6 +619,124 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
 
         // resposta imediata: a UI acompanha por /api/monitor/status
         return json(req, res, 202, { started: true, startedAt: mon.startedAt });
+      }
+
+      // ---------------- locais (setores, sublocais e guarda-chuva) ----------------
+
+      if (route === '/api/locais' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = arvoreLocais(db);
+        db.close();
+        return json(req, res, 200, { rows });
+      }
+
+      if (route === '/api/locais' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = criarLocal(db, {
+          nome: body.nome, tipo: body.tipo, paiId: body.paiId,
+          andar: body.andar, predio: body.predio, ala: body.ala,
+          origem: 'manual',
+        });
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true, id: r.id });
+      }
+
+      // buscar ramais do AD/banco para vincular a um local
+      if (route === '/api/locais/ramais-disponiveis' && req.method === 'GET') {
+        const termo = (url.searchParams.get('q') || '').trim();
+        const db = openDb(dbPath);
+        const rows = db.prepare(`
+          SELECT DISTINCT substr(d.ramal, 3) AS curto, d.ramal, d.ip, d.model,
+                 (SELECT GROUP_CONCAT(l.nome, ' + ')
+                    FROM local_ramais lr JOIN locais l ON l.id = lr.local_id
+                   WHERE lr.ramal_curto = substr(d.ramal, 3)) AS setores
+          FROM devices d
+          WHERE d.is_phone = 1 AND d.ramal IS NOT NULL
+            ${termo ? "AND (d.ramal LIKE ? OR substr(d.ramal,3) LIKE ?)" : ''}
+          ORDER BY CAST(d.ramal AS INTEGER) LIMIT 40
+        `).all(...(termo ? [`%${termo}%`, `%${termo}%`] : []));
+        db.close();
+        return json(req, res, 200, { rows });
+      }
+
+      if (route.startsWith('/api/locais/') && req.method === 'GET') {
+        const id = Number(route.slice('/api/locais/'.length));
+        const db = openDb(dbPath);
+        const det = obterLocal(db, id);
+        if (!det) { db.close(); return json(req, res, 404, { error: 'local nao encontrado' }); }
+        const ramais = ramaisDoLocal(db, id);
+        const imps = impressorasDoLocal(db, id);
+        // totais do guarda-chuva (inclui descendentes)
+        const subs = descendentes(db, id);
+        let ramaisSub = 0, impsSub = 0;
+        if (subs.length) {
+          const marcas = subs.map(() => '?').join(',');
+          ramaisSub = db.prepare(`SELECT COUNT(*) c FROM local_ramais WHERE local_id IN (${marcas})`).get(...subs).c;
+          impsSub = db.prepare(`SELECT COUNT(*) c FROM impressoras WHERE local_id IN (${marcas})`).get(...subs).c;
+        }
+        db.close();
+        return json(req, res, 200, {
+          ...det,
+          ramais, impressoras: imps,
+          descendentes: subs.length,
+          totais_arvore: { ramais: det.ramais + ramaisSub, impressoras: det.impressoras + impsSub },
+        });
+      }
+
+      // ---- vinculos: precisam vir ANTES do /api/locais/:id generico,
+      //      senao "298/ramais" seria interpretado como id ----
+
+      // vinculo ramal <-> local
+      if (route.match(/^\/api\/locais\/\d+\/ramais$/) && req.method === 'POST') {
+        const id = Number(route.split('/')[3]);
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = vincularRamal(db, { localId: id, ramalCurto: body.ramal });
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
+      }
+
+      if (route.match(/^\/api\/locais\/\d+\/ramais\/\w+$/) && req.method === 'DELETE') {
+        const partes = route.split('/');
+        const db = openDb(dbPath);
+        const r = desvincularRamal(db, { localId: Number(partes[3]), ramalCurto: partes[5] });
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
+      }
+
+      // mover impressora para um local (localId null = deixar livre)
+      if (route.match(/^\/api\/locais\/\d+\/impressoras$/) && req.method === 'POST') {
+        const id = Number(route.split('/')[3]);
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = moverImpressora(db, { ip: body.ip, localId: id });
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
+      }
+
+      if (route.startsWith('/api/locais/') && req.method === 'POST') {
+        const id = Number(route.slice('/api/locais/'.length));
+        if (!Number.isFinite(id) || id <= 0) return json(req, res, 400, { ok: false, erro: 'id inválido' });
+        const body = await readJsonBody(req);
+        const db = openDb(dbPath);
+        const r = editarLocal(db, id, body);
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true });
+      }
+
+      if (route.startsWith('/api/locais/') && req.method === 'DELETE') {
+        const id = Number(route.slice('/api/locais/'.length));
+        const db = openDb(dbPath);
+        const r = excluirLocal(db, id);
+        db.close();
+        if (!r.ok) return json(req, res, 400, { ok: false, erro: r.erro });
+        return json(req, res, 200, { ok: true, soltos: r.soltos });
       }
 
       // ---------------- impressoras ----------------

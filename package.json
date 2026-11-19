@@ -22,7 +22,8 @@
     "bench": "node scripts/bench.mjs",
     "rebuild-stats": "node scripts/rebuild-stats.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "semear-admin": "node scripts/semear-admin.mjs"
+    "semear-admin": "node scripts/semear-admin.mjs",
+    "migrar-locais": "node scripts/migrar-locais.mjs"
   },
   "keywords": [
     "voip",
