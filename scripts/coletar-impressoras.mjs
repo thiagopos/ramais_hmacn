@@ -15,6 +15,7 @@
  *   node scripts/coletar-impressoras.mjs
  *   node scripts/coletar-impressoras.mjs --concorrencia 16 --timeout 4000
  */
+import fs from 'node:fs';
 import { openDb, fecharConexoes } from '../src/lib/db.js';
 import { criarTabelasImpressoras, gravarVersaoImpressoras } from '../src/lib/impressoras-schema.js';
 import { lerImpressora } from '../src/lib/impressoras-snmp.js';
@@ -134,6 +135,22 @@ if (falhas) {
   for (const ip of semResposta) {
     const d = db.prepare('SELECT setor, modelo FROM impressoras WHERE ip = ?').get(ip);
     console.log(`    ${ip.padEnd(15)} ${(d?.setor || '-').padEnd(28)} ${d?.modelo || ''}`);
+  }
+}
+
+// resumo em arquivo, quando chamado pelo servidor web (que nao le stdout)
+const resumoPath = (() => {
+  const i = process.argv.indexOf('--resultado');
+  return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
+})();
+if (resumoPath) {
+  try {
+    fs.writeFileSync(resumoPath, JSON.stringify({
+      total: alvos.length, responderam: ok, semResposta: falhas,
+      consumiveis, duracaoMs: ms, semRespostaIps: semResposta,
+    }));
+  } catch (e) {
+    console.error('nao foi possivel gravar o resumo:', e.message);
   }
 }
 

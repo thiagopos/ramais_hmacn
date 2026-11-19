@@ -702,12 +702,12 @@
   </nav>
   <div class="spacer"></div>
   <div class="lastcheck">
-    <span class="lc-label">Último monitoramento</span>
+    <span class="lc-label">Última varredura</span>
     <span class="lc-value" id="lastCheck">—</span>
   </div>
   <button id="btnMonitor">
     <span class="btn-spinner" id="spinner" hidden></span>
-    <span id="btnLabel">Executar monitoramento</span>
+    <span id="btnLabel">Varrer telefones</span>
   </button>
 
   <div class="usermenu">
@@ -1954,7 +1954,7 @@ function setRunning(on) {
   btn.disabled = on;
   btn.classList.toggle('running', on);
   document.getElementById('spinner').hidden = !on;
-  document.getElementById('btnLabel').textContent = on ? 'Monitorando…' : 'Executar monitoramento';
+  document.getElementById('btnLabel').textContent = on ? 'Varrendo…' : 'Varrer telefones';
   clearInterval(monitorTimer);
   if (on) {
     monitorStart = Date.now();

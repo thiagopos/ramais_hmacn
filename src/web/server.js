@@ -757,6 +757,63 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         return json(req, res, 200, { rows });
       }
 
+      // coleta sob demanda (mesma logica do script, em processo separado)
+      if (route === '/api/impressoras/coletar' && req.method === 'POST') {
+        if (mon.coletandoImpressoras) {
+          return json(req, res, 409, { error: 'Já existe uma coleta de impressoras em andamento.' });
+        }
+        mon.coletandoImpressoras = true;
+        mon.coletaIniciadaEm = new Date().toISOString();
+        mon.erroColetaImpressoras = null;
+        const t0 = Date.now();
+
+        // o script grava o resumo em arquivo (stdio 'ignore': sem depender de pipe)
+        const tmpResultado = path.join(os.tmpdir(), `impressoras-${process.pid}-${Date.now()}.json`);
+        const filho = spawn(process.execPath, [
+          path.join(RAIZ, 'scripts', 'coletar-impressoras.mjs'),
+          '--db', path.resolve(dbPath),
+          '--resultado', tmpResultado,
+        ], { cwd: RAIZ, stdio: 'ignore', windowsHide: true });
+
+        filho.on('error', (err) => {
+          mon.coletandoImpressoras = false;
+          mon.coletaIniciadaEm = null;
+          mon.erroColetaImpressoras = err.message;
+        });
+
+        filho.on('exit', (code) => {
+          mon.coletandoImpressoras = false;
+          mon.coletaIniciadaEm = null;
+          let resumo = null;
+          try {
+            if (fs.existsSync(tmpResultado)) {
+              resumo = JSON.parse(fs.readFileSync(tmpResultado, 'utf8'));
+              fs.unlinkSync(tmpResultado);
+            }
+          } catch { /* resumo ilegivel: segue com o essencial */ }
+
+          if (code === 0 && resumo) {
+            mon.ultimaColetaImpressoras = { ...resumo, duracaoMs: Date.now() - t0, terminouEm: new Date().toISOString() };
+            console.log(`[impressoras] coleta: ${resumo.responderam}/${resumo.total} em ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+          } else if (code !== 0) {
+            mon.erroColetaImpressoras = `a coleta terminou com codigo ${code}`;
+            console.log(`[impressoras] coleta falhou (codigo ${code})`);
+          }
+        });
+        return json(req, res, 202, { started: true, iniciadoEm: mon.coletaIniciadaEm });
+      }
+
+      if (route === '/api/impressoras/status' && req.method === 'GET') {
+        return json(req, res, 200, {
+          coletando: !!mon.coletandoImpressoras,
+          iniciadoEm: mon.coletaIniciadaEm || null,
+          ultimaColeta: mon.ultimaColetaImpressoras || null,
+          erro: mon.erroColetaImpressoras || null,
+        });
+      }
+
+      // detalhe de UMA impressora — por ultimo, para nao capturar /status e
+      // /coletar antes delas (mesmo cuidado que a rota de locais exige)
       if (route.startsWith('/api/impressoras/') && req.method === 'GET') {
         const ip = decodeURIComponent(route.slice('/api/impressoras/'.length));
         const db = openDb(dbPath);
@@ -764,29 +821,6 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         db.close();
         if (!det) return json(req, res, 404, { error: 'impressora nao encontrada' });
         return json(req, res, 200, det);
-      }
-
-      // coleta sob demanda (mesma logica do script, em processo separado)
-      if (route === '/api/impressoras/coletar' && req.method === 'POST') {
-        if (mon.coletandoImpressoras) {
-          return json(req, res, 409, { error: 'Já existe uma coleta de impressoras em andamento.' });
-        }
-        mon.coletandoImpressoras = true;
-        const filho = spawn(process.execPath, [
-          path.join(RAIZ, 'scripts', 'coletar-impressoras.mjs'),
-          '--db', path.resolve(dbPath),
-        ], { cwd: RAIZ, stdio: 'ignore', windowsHide: true });
-
-        filho.on('error', () => { mon.coletandoImpressoras = false; });
-        filho.on('exit', (code) => {
-          mon.coletandoImpressoras = false;
-          console.log(`[impressoras] coleta concluida (codigo ${code})`);
-        });
-        return json(req, res, 202, { started: true });
-      }
-
-      if (route === '/api/impressoras/status' && req.method === 'GET') {
-        return json(req, res, 200, { coletando: !!mon.coletandoImpressoras });
       }
 
       if (route === '/api/scope' && req.method === 'GET') {

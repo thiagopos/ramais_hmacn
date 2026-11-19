@@ -187,6 +187,65 @@
 
   .empty { padding: 40px; text-align: center; color: var(--muted); }
 
+  /* ---- barra de status da coleta (mesmo padrao da tela de telefones) ---- */
+  .statusbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    margin: 14px 24px 0; padding: 12px 16px; border-radius: var(--r-md);
+    border: 1px solid var(--line); background: var(--surface-2);
+    animation: slidein .18s ease;
+  }
+  @keyframes slidein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  .statusbar[hidden] { display: none; }
+  .sb-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .sb-text { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+  .sb-text strong { font-size: 14px; }
+  .sb-text span { font-size: 12.5px; color: var(--muted); }
+  .sb-icon { width: 18px; height: 18px; flex: none; border-radius: 50%; }
+  .sb-close {
+    background: transparent; border: 0; color: var(--muted); font-size: 20px;
+    line-height: 1; padding: 0 4px; cursor: pointer;
+  }
+  .sb-close:hover { color: var(--text); }
+
+  .statusbar.running { border-color: var(--accent-border); background: var(--accent-soft); }
+  .statusbar.running .sb-icon {
+    border: 2px solid var(--accent-border); border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  .statusbar.running strong { color: var(--accent); }
+
+  .statusbar.ok { border-color: var(--ok-border); background: var(--ok-soft); }
+  .statusbar.ok .sb-icon { background: var(--ok); }
+  .statusbar.ok .sb-icon::after {
+    content: '\2713'; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #06210f; font-weight: 800; height: 100%;
+  }
+  .statusbar.ok strong { color: var(--ok); }
+
+  .statusbar.warn { border-color: var(--warn-border); background: var(--warn-soft); }
+  .statusbar.warn .sb-icon { background: var(--warn); }
+  .statusbar.warn .sb-icon::after {
+    content: '!'; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #2a2200; font-weight: 800; height: 100%;
+  }
+  .statusbar.warn strong { color: var(--warn); }
+
+  .statusbar.err { border-color: var(--bad-border); background: var(--bad-soft); }
+  .statusbar.err .sb-icon { background: var(--bad); }
+  .statusbar.err .sb-icon::after {
+    content: '\00d7'; display: flex; align-items: center; justify-content: center;
+    font-size: 13px; color: #fff; font-weight: 800; height: 100%;
+  }
+  .statusbar.err strong { color: var(--bad-text); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .btn-spinner {
+    width: 13px; height: 13px; border-radius: 50%; display: inline-block;
+    border: 2px solid rgba(255,255,255,.35); border-top-color: #fff;
+    animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 4px;
+  }
+  .btn-spinner[hidden] { display: none; }
+
   /* ---- coluna Local ---- */
   .local-cell { color: var(--text-2); }
   .local-cell .andar {
@@ -258,11 +317,24 @@
     <span class="lc-value" id="ultimaColeta">—</span>
   </div>
   <button id="btnColetar">
-    <span id="btnColetarLabel">Coletar agora</span>
+    <span class="btn-spinner" id="spinner" hidden></span>
+    <span id="btnColetarLabel">Coletar impressoras</span>
   </button>
 </header>
 
 <div class="cards" id="cards"></div>
+
+<!-- barra de status da coleta: mesmo padrao da tela de telefones -->
+<div class="statusbar" id="statusbar" hidden>
+  <div class="sb-left">
+    <span class="sb-icon" id="sbIcon"></span>
+    <div class="sb-text">
+      <strong id="sbTitulo">—</strong>
+      <span id="sbDetalhe">—</span>
+    </div>
+  </div>
+  <button class="sb-close" id="sbClose" title="Fechar">×</button>
+</div>
 
 <div class="controls">
   <input type="search" id="q" placeholder="Buscar por setor, IP, modelo ou série…">
@@ -552,25 +624,91 @@ document.querySelectorAll('th').forEach((th) => {
   document.getElementById(id).addEventListener('input', render);
 });
 
+/* ---- barra de status da coleta ---- */
+const SB = {
+  barra: document.getElementById('statusbar'),
+  titulo: document.getElementById('sbTitulo'),
+  detalhe: document.getElementById('sbDetalhe'),
+};
+
+function showStatus(tipo, titulo, detalhe) {
+  SB.barra.hidden = false;
+  SB.barra.className = 'statusbar ' + tipo;
+  SB.titulo.textContent = titulo;
+  SB.detalhe.textContent = detalhe;
+}
+function hideStatus() { SB.barra.hidden = true; }
+
+document.getElementById('sbClose').onclick = hideStatus;
+
+/**
+ * Coleta sob demanda.
+ *
+ * O servidor responde 202 na hora e roda o script em processo separado —
+ * a varredura SNMP leva ~20s e nao pode bloquear a interface. O tempo e
+ * mostrado durante a execucao e o resumo aparece ao terminar.
+ */
 document.getElementById('btnColetar').onclick = async () => {
   const btn = document.getElementById('btnColetar');
   const rotulo = document.getElementById('btnColetarLabel');
+  const spinner = document.getElementById('spinner');
+
   btn.disabled = true;
+  spinner.hidden = false;
   rotulo.textContent = 'Coletando…';
+  const t0 = Date.now();
+  showStatus('running', 'Coleta em andamento', 'lendo as impressoras por SNMP… 0s');
+
   try {
     await api('/api/impressoras/coletar', { method: 'POST' });
-    // acompanha ate terminar
+
+    // acompanha o tempo decorrido ate terminar
+    const cronometro = setInterval(() => {
+      const s = Math.round((Date.now() - t0) / 1000);
+      SB.detalhe.textContent = `lendo as impressoras por SNMP… ${s}s`;
+    }, 1000);
+
+    let st;
     for (;;) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const st = await api('/api/impressoras/status');
+      await new Promise((r) => setTimeout(r, 1000));
+      st = await api('/api/impressoras/status');
       if (!st.coletando) break;
     }
+    clearInterval(cronometro);
+
+    const seg = ((Date.now() - t0) / 1000).toFixed(1);
+
+    if (st.erro) {
+      showStatus('err', 'A coleta falhou', st.erro);
+      return;
+    }
+
+    const res = st.ultimaColeta;
     await carregar();
+
+    if (!res) {
+      showStatus('ok', 'Coleta concluída', `${seg}s`);
+      return;
+    }
+
+    const partes = [`${res.responderam} de ${res.total} responderam`];
+    if (res.semResposta) partes.push(`${res.semResposta} sem resposta`);
+    partes.push(`${res.consumiveis} consumíveis lidos`);
+    partes.push(`${seg}s`);
+    const detalhe = partes.join(' · ');
+
+    if (res.semResposta > 0) {
+      const lista = (res.semRespostaIps || []).slice(0, 6).join(', ');
+      showStatus('warn', 'Coleta concluída com falhas', `${detalhe} — sem resposta: ${lista}${res.semResposta > 6 ? '…' : ''}`);
+    } else {
+      showStatus('ok', 'Coleta concluída', detalhe);
+    }
   } catch (e) {
-    alert('Falha na coleta: ' + e.message);
+    showStatus('err', 'A coleta falhou', e.message || 'erro desconhecido');
   } finally {
     btn.disabled = false;
-    rotulo.textContent = 'Coletar agora';
+    spinner.hidden = true;
+    rotulo.textContent = 'Coletar impressoras';
   }
 };
 
