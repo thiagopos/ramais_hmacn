@@ -15,7 +15,8 @@
  */
 export function listarImpressoras(db) {
   const rows = db.prepare(`
-    SELECT i.ip, i.serie, i.modelo, i.descricao, i.apelido, i.setor, i.andar,
+    SELECT i.ip, i.serie, i.serie_cadastro, i.modelo, i.descricao, i.apelido,
+           i.setor, i.local, i.andar,
            i.ativo, i.online, i.paginas, i.coletado_em, i.faltou_em,
            (SELECT COUNT(*) FROM impressora_consumiveis c WHERE c.ip = i.ip) AS qtd_consumiveis,
            (SELECT MIN(c.percentual) FROM impressora_consumiveis c
@@ -30,12 +31,55 @@ export function listarImpressoras(db) {
              pior_percentual IS NULL, pior_percentual, i.setor, i.ip
   `).all();
 
-  return rows.map((r) => ({
-    ...r,
-    nome_exibicao: r.apelido || r.setor || r.ip,
-    // 'ok' | 'atencao' | 'critico' | 'sem_leitura' | 'offline'
-    estado: estadoDe(r),
-  }));
+  // onde cada serie esta cadastrada, para dizer de qual ponto veio o aparelho
+  const porSerie = new Map();
+  for (const r of rows) {
+    if (r.serie_cadastro) porSerie.set(normalizarSerie(r.serie_cadastro), r.ip);
+  }
+
+  return rows.map((r) => {
+    const serieLida = normalizarSerie(r.serie);
+    const serieCad = normalizarSerie(r.serie_cadastro);
+    const trocada = !!(serieLida && serieCad && serieLida !== serieCad);
+    // de onde veio a impressora que esta neste IP agora
+    const ipOrigem = trocada ? porSerie.get(serieLida) || null : null;
+    return {
+      ...r,
+      nome_exibicao: r.setor || r.apelido || r.ip,
+      serie_trocada: trocada ? 1 : 0,
+      // a serie que esta aqui agora pertence a outro ponto cadastrado?
+      serie_origem_ip: ipOrigem,
+      estado: estadoDe(r),
+    };
+  });
+}
+
+/**
+ * Normaliza serie para comparar.
+ *
+ * Alguns firmware devolvem a serie com um ponto final ("ZDEJBQAJ800077Y."),
+ * o que geraria divergencia falsa. Tambem removemos espacos.
+ */
+export function normalizarSerie(s) {
+  if (!s) return null;
+  return String(s).replace(/[\s.]/g, '').toUpperCase() || null;
+}
+
+/**
+ * Diz de onde veio a impressora que esta num IP.
+ * Compara a serie lida com a serie que o cadastro espera em cada ponto.
+ */
+export function origemDaSerie(db, serie, ignorarIp = null) {
+  const alvo = normalizarSerie(serie);
+  if (!alvo) return null;
+  const candidatos = db.prepare(
+    `SELECT ip, setor, local, serie_cadastro FROM impressoras WHERE serie_cadastro IS NOT NULL`,
+  ).all();
+  for (const c of candidatos) {
+    if (c.ip === ignorarIp) continue;
+    if (normalizarSerie(c.serie_cadastro) === alvo) return c;
+  }
+  return null;
 }
 
 /**

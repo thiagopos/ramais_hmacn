@@ -183,6 +183,28 @@
 
   .empty { padding: 40px; text-align: center; color: var(--muted); }
 
+  /* ---- coluna Local ---- */
+  .local-cell { color: var(--text-2); }
+  .local-cell .andar {
+    display: block; color: var(--muted); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: .04em; line-height: 1.2;
+  }
+
+  /* ---- alerta de serie trocada ---- */
+  .alerta-serie {
+    display: inline-block; margin-left: 5px; padding: 1px 7px; border-radius: 20px;
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    background: var(--warn-soft); border: 1px solid var(--warn-border); color: var(--warn-text);
+  }
+
+  /* ---- link para a pagina da impressora ---- */
+  .ip-link {
+    color: var(--accent-text); text-decoration: none;
+    border-bottom: 1px dashed var(--accent-border); padding-bottom: 1px;
+  }
+  .ip-link:hover { color: var(--accent); border-bottom-style: solid; }
+
+
   /* ---- painel lateral ---- */
   #drawer {
     position: fixed; inset: 0 0 0 auto; width: min(560px, 92vw); background: var(--surface);
@@ -258,6 +280,7 @@
       <tr>
         <th data-k="estado" class="th-status">Estado <span class="arw"></span></th>
         <th data-k="nome_exibicao">Setor <span class="arw"></span></th>
+        <th data-k="local">Local <span class="arw"></span></th>
         <th data-k="modelo">Modelo <span class="arw"></span></th>
         <th data-k="ip">IP <span class="arw"></span></th>
         <th data-k="pior_percentual" class="num">Pior consumível <span class="arw"></span></th>
@@ -395,9 +418,13 @@ function render() {
   document.getElementById('rows').innerHTML = rows.map((r, i) => `
     <tr data-i="${i}">
       <td class="td-status">${statusIcon(r)}</td>
-      <td><span class="setor-tag">${r.nome_exibicao}</span>${r.andar ? ` <span class="muted" style="font-size:11.5px">${r.andar}º</span>` : ''}</td>
+      <td>
+        <span class="setor-tag">${r.nome_exibicao}</span>
+        ${r.serie_trocada ? `<span class="alerta-serie" title="A série nesta impressora não é a do cadastro — o equipamento foi remanejado">trocada</span>` : ''}
+      </td>
+      <td class="local-cell">${r.local ? r.local : '<span class="muted">—</span>'}${r.andar ? `<span class="andar">${r.andar}º andar</span>` : ''}</td>
       <td>${r.modelo ? `<span class="badge-modelo">${r.modelo}</span>` : '<span class="muted">—</span>'}</td>
-      <td class="mono">${r.ip}</td>
+      <td class="mono"><a class="ip-link" href="http://${r.ip}" target="_blank" rel="noopener" title="Abrir a página da impressora em ${r.ip}">${r.ip}</a></td>
       <td class="num">${barra(r.pior_percentual)}</td>
       <td>${r.pior_nome ? r.pior_nome : '<span class="muted">—</span>'}</td>
       <td class="num">${fmtNum(r.paginas)}</td>
@@ -408,7 +435,11 @@ function render() {
   document.getElementById('vazio').hidden = rows.length > 0;
 
   document.querySelectorAll('#rows tr').forEach((tr) => {
-    tr.onclick = () => abrirDetalhe(rows[+tr.dataset.i]);
+    tr.onclick = (ev) => {
+      // clicar no link do IP abre a impressora, nao o painel lateral
+      if (ev.target.closest('a')) return;
+      abrirDetalhe(rows[+tr.dataset.i]);
+    };
   });
 }
 
@@ -431,19 +462,41 @@ async function abrirDetalhe(r) {
   const drawer = document.getElementById('drawer');
   drawer.classList.add('open');
   document.getElementById('dTitulo').textContent = r.nome_exibicao;
-  document.getElementById('dSub').textContent = `${r.ip}${r.apelido ? ' · ' + (r.setor || '') : ''}`;
+  document.getElementById('dSub').textContent = r.local ? `${r.local} — ${r.ip}` : r.ip;
   document.getElementById('dEstado').innerHTML =
-    `${statusIcon(r)} <span class="chip ${r.estado}">${ROTULO[r.estado]}</span>`;
-  document.getElementById('detalhes').innerHTML = [
+    `${statusIcon(r)} <span class="chip ${r.estado}">${ROTULO[r.estado]}</span>`
+    + (r.serie_trocada
+      ? ` <span class="alerta-serie">série trocada</span>`
+      : '');
+
+  const detalhes = [
     ['Modelo', r.modelo],
-    ['Série', r.serie],
     ['Setor', r.setor],
-    ['Andar', r.andar ? r.andar + 'º' : null],
-    ['IP', r.ip],
+    ['Local', r.local],
+    ['Andar', r.andar ? r.andar + 'º andar' : null],
+    ['IP', `<a class="ip-link" href="http://${r.ip}" target="_blank" rel="noopener">${r.ip}</a>`
+      + ' <span class="muted" style="font-size:11.5px">abrir a página da impressora</span>'],
     ['Páginas', fmtNum(r.paginas)],
     ['Coletado', fmt(r.coletado_em)],
-    ['Não respondeu', r.offline === 1 || r.online === 0 ? fmt(r.faltou_em) : null],
-  ].map(([k, v]) => `<dt>${k}</dt><dd>${v == null || v === '' ? '—' : v}</dd>`).join('');
+    ['Não respondeu', r.online === 0 ? fmt(r.faltou_em) : null],
+    ['Série lida', r.serie],
+    ['Série no cadastro', r.serie_cadastro],
+  ];
+
+  // explica a troca de equipamento: de onde veio e para onde foi
+  if (r.serie_trocada) {
+    detalhes.push(['Diagnóstico', r.serie_origem_ip
+      ? `Este endereço deveria ter o equipamento de <strong>${r.serie_cadastro}</strong>, `
+        + `mas quem responde é o de <strong>${r.serie}</strong>, que é o aparelho cadastrado em `
+        + `<strong>${r.serie_origem_ip}</strong> (${nomeDoIp(r.serie_origem_ip)}). `
+        + 'Provavelmente os dois foram remanejados.'
+      : `Este endereço deveria ter o equipamento <strong>${r.serie_cadastro}</strong>, `
+        + `mas quem responde é <strong>${r.serie}</strong>, que não consta em nenhum ponto do cadastro. `
+        + 'Pode ser um equipamento novo ou de outro setor não cadastrado.']);
+  }
+
+  document.getElementById('detalhes').innerHTML = detalhes
+    .map(([k, v]) => `<dt>${k}</dt><dd>${v === undefined || v === null || v === '' ? '—' : v}</dd>`).join('');
 
   document.getElementById('dConsumiveis').innerHTML = '<div class="muted">carregando…</div>';
 
@@ -466,6 +519,13 @@ async function abrirDetalhe(r) {
   } catch (e) {
     document.getElementById('dConsumiveis').innerHTML = `<div class="muted">${e.message}</div>`;
   }
+}
+
+/** Nome legivel de um IP (setor + local), para explicar a origem da serie. */
+function nomeDoIp(ip) {
+  const r = todas.find((x) => x.ip === ip);
+  if (!r) return 'desconhecido';
+  return r.local ? `${r.setor} · ${r.local}` : (r.setor || ip);
 }
 
 document.getElementById('close').onclick = () => document.getElementById('drawer').classList.remove('open');

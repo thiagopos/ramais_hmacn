@@ -73,17 +73,20 @@ gravarVersaoImpressoras(db);
 
 const agora = new Date().toISOString();
 const sql = db.prepare(`
-  INSERT INTO impressoras (ip, serie, modelo, setor, andar, ativo, criado_em)
-  VALUES (@ip, @serie, @modelo, @setor, @andar, 1, @criado)
+  INSERT INTO impressoras (ip, serie, serie_cadastro, modelo, setor, local, andar, ativo, criado_em)
+  VALUES (@ip, @serie, @serie, @modelo, @setor, @local, @andar, 1, @criado)
   ON CONFLICT(ip) DO UPDATE SET
-    serie = excluded.serie,
-    modelo = excluded.modelo,
-    setor = COALESCE(impressoras.setor, excluded.setor),
-    andar = COALESCE(impressoras.andar, excluded.andar)
+    serie_cadastro = excluded.serie_cadastro,
+    modelo = COALESCE(excluded.modelo, impressoras.modelo),
+    setor = COALESCE(excluded.setor, impressoras.setor),
+    local = COALESCE(excluded.local, impressoras.local),
+    andar = COALESCE(excluded.andar, impressoras.andar)
 `);
 
 let inseridas = 0, puladas = 0, semIp = 0;
+let comLocal = 0;
 const setores = new Set();
+const locais = new Set();
 
 db.exec('BEGIN');
 try {
@@ -94,15 +97,17 @@ try {
     const modelo = campo(item, 'MODELO');
     const serie = campo(item, 'SERIE', 'S\u00c9RIE', 'SÉRIE');
     const setorBruto = campo(item, 'SETOR');
-    const { andar, setor } = separarSetor(setorBruto);
+    const { andar, setor, local } = separarSetor(setorBruto);
 
     if (setor) setores.add(setor);
+    if (local) { locais.add(`${setor} / ${local}`); comLocal++; }
 
     sql.run({
       ip,
       serie: serie ? String(serie).trim() : null,
       modelo: modelo ? String(modelo).trim() : null,
       setor: setor || null,
+      local: local || null,
       andar: andar || null,
       criado: agora,
     });
@@ -122,15 +127,21 @@ console.log(`arquivo: ${arquivo}`);
 console.log(`registros no arquivo: ${lista.length}`);
 console.log(`importados           : ${inseridas}`);
 console.log(`sem IP valido        : ${semIp}`);
+console.log(`com local de instalacao: ${comLocal}`);
 console.log(`setores distintos    : ${setores.size}`);
+console.log(`locais distintos     : ${locais.size}`);
 console.log(`total no banco       : ${total}\n`);
 console.log('por modelo:');
 for (const m of porModelo) console.log(`  ${String(m.modelo).padEnd(20)} ${m.c}`);
 
-console.log('\namostra de setores separados:');
-for (const s of db.prepare(`SELECT setor, andar, COUNT(*) c FROM impressoras
-                            WHERE setor IS NOT NULL GROUP BY setor, andar ORDER BY setor LIMIT 6`).all()) {
-  console.log(`  andar ${String(s.andar ?? '-').padEnd(2)}  ${String(s.setor).padEnd(34)} (${s.c})`);
+console.log('\nsetores com mais de uma impressora (local de cada uma):');
+for (const s of db.prepare(`SELECT setor, COUNT(*) n FROM impressoras
+                            WHERE setor IS NOT NULL GROUP BY setor HAVING n > 1
+                            ORDER BY n DESC LIMIT 6`).all()) {
+  console.log(`  ${s.setor} (${s.n})`);
+  for (const l of db.prepare(`SELECT ip, local FROM impressoras WHERE setor = ? ORDER BY ip`).all(s.setor)) {
+    console.log(`      ${l.ip.padEnd(15)} ${l.local || '(sem local)'}`);
+  }
 }
 
 fecharConexoes();

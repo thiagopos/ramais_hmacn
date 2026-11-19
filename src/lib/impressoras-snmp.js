@@ -143,14 +143,30 @@ export async function lerImpressora(ip, { comunidade = 'public', timeoutMs = 300
 
   // 2) modelo: sysDescr das HP e generico ("ETHERNET MULTI-ENVIRONMENT..."),
   //    o prtGeneralModelName traz o nome comercial ("HP LaserJet Flow MFP E52645").
-  //    Algumas Samsung devolvem codigo interno ("IMP1757", "HP754FF7"), que nao
-  //    diz nada a quem usa a tela: nesse caso vale mais o nome do sysDescr.
+  //
+  //    Nas Samsung esse campo costuma trazer o nome que alguem digitou no
+  //    painel do aparelho ("Bucomaxilo", "PS_CHECK_IN", "COORD_FOLHA") — que
+  //    e util, mas como APELIDO, nao como modelo. Nesse caso guardamos o nome
+  //    do painel em `apelido` e o modelo real vem do sysDescr.
   let modelo = null;
+  let apelido = null;
   const mvb = await getUma(ip, [OID_MODELO], cfg);
-  if (mvb) modelo = texto(valor(mvb[0]));
-  if (!modelo || pareceCodigoInterno(modelo)) {
-    modelo = modeloDoDescricao(descricao) || modelo;
+  const nomeDoPainel = mvb ? texto(valor(mvb[0])) : null;
+
+  if (nomeDoPainel && !pareceCodigoInterno(nomeDoPainel)) {
+    const doSysdescr = modeloDoDescricao(descricao);
+    // o painel traz nome comercial ("HP LaserJet Flow MFP E52645")?
+    const ehNomeComercial = /laserjet|laser|officejet|designjet|mfp|flow/i.test(nomeDoPainel)
+      || /\b[A-Z]\d{4,5}\b/.test(nomeDoPainel);
+    if (ehNomeComercial) {
+      modelo = nomeDoPainel;
+    } else {
+      // nome dado pela pessoa: vira apelido, modelo vem do sysDescr
+      apelido = nomeDoPainel;
+      modelo = doSysdescr || nomeDoPainel;
+    }
   }
+  if (!modelo) modelo = modeloDoDescricao(descricao) || nomeDoPainel;
 
   // 3) consumiveis: um slot por requisicao (ver nota no topo do arquivo)
   const consumiveis = [];
@@ -175,6 +191,7 @@ export async function lerImpressora(ip, { comunidade = 'public', timeoutMs = 300
     ip,
     descricao,
     modelo,
+    apelido,
     serie,
     paginas: Number.isFinite(Number(paginas)) ? Number(paginas) : null,
     consumiveis,

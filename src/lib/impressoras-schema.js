@@ -22,11 +22,13 @@ export function criarTabelasImpressoras(db) {
     -- a serie e a identidade fisica (sobrevive a troca de IP por DHCP).
     CREATE TABLE IF NOT EXISTS impressoras (
       ip            TEXT PRIMARY KEY,
-      serie         TEXT,
+      serie         TEXT,     -- serie que a IMPRESSORA reporta agora (SNMP)
+      serie_cadastro TEXT,    -- serie que o cadastro espera naquele IP
       modelo        TEXT,
       descricao     TEXT,     -- sysDescr cru, util para diagnostico
-      apelido       TEXT,     -- nome dado por nos (o que a lista mostra)
-      setor         TEXT,     -- local fisico, preenchido a mao
+      apelido       TEXT,     -- nome dado por nos / pelo painel do aparelho
+      setor         TEXT,     -- setor guarda-chuva (ex.: AMBULATÓRIO)
+      local         TEXT,     -- local dentro do setor (ex.: Egressos Sala 1)
       andar         TEXT,
       ativo         INTEGER NOT NULL DEFAULT 1,
       -- estado da ultima coleta bem-sucedida
@@ -65,12 +67,29 @@ export function criarTabelasImpressoras(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_hist_dia ON impressora_historico(dia);
   `);
+
+  // acrescenta colunas novas em bancos que ja existiam
+  migrarColunas(db);
 }
 
 /** Grava/atualiza a versao do modulo na tabela meta. */
 export function gravarVersaoImpressoras(db, versao = PRINTERS_SCHEMA_VERSION) {
   db.prepare(`INSERT INTO meta (key, value) VALUES ('printers_schema_version', ?)
               ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(String(versao));
+}
+
+/**
+ * Migracoes aditivas para bancos ja existentes.
+ * CREATE TABLE IF NOT EXISTS nao acrescenta coluna nova a tabela existente,
+ * entao cada coluna nova precisa ser verificada aqui.
+ */
+function migrarColunas(db) {
+  const atuais = db.prepare('PRAGMA table_info(impressoras)').all().map((c) => c.name);
+  const adicionar = (nome, tipo) => {
+    if (!atuais.includes(nome)) db.exec(`ALTER TABLE impressoras ADD COLUMN ${nome} ${tipo}`);
+  };
+  adicionar('local', 'TEXT');
+  adicionar('serie_cadastro', 'TEXT');
 }
 
 export function lerVersaoImpressoras(db) {

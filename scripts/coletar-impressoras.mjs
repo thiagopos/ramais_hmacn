@@ -44,8 +44,11 @@ const agora = new Date().toISOString();
 const dia = agora.slice(0, 10);
 
 const sqlOk = db.prepare(`
-  UPDATE impressoras SET online = 1, serie = COALESCE(@serie, serie),
-    modelo = COALESCE(@modelo, modelo), descricao = @descricao,
+  UPDATE impressoras SET online = 1,
+    serie = @serie,
+    modelo = COALESCE(@modelo, modelo),
+    apelido = COALESCE(@apelido, apelido),
+    descricao = @descricao,
     paginas = @paginas, coletado_em = @agora
   WHERE ip = @ip
 `);
@@ -72,8 +75,8 @@ function gravar(r) {
   db.exec('BEGIN IMMEDIATE');
   try {
     sqlOk.run({
-      ip: r.ip, serie: r.serie, modelo: r.modelo, descricao: r.descricao,
-      paginas: r.paginas, agora,
+      ip: r.ip, serie: r.serie, modelo: r.modelo, apelido: r.apelido,
+      descricao: r.descricao, paginas: r.paginas, agora,
     });
     sqlLimpaCons.run(r.ip);
     const niveis = {};
