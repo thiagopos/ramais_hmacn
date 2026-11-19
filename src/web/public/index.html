@@ -655,7 +655,23 @@
   .us-hint.aviso { color: var(--warn-text); }
   .us-hint.erro { color: var(--bad-text); }
 
-  /* ---- barra de rolagem ---- */
+  /* ---- navegacao entre as ferramentas do kit ---- */
+  .ferramentas { display: flex; gap: 4px; margin-left: 4px; }
+  .ferramentas a {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    color: var(--muted); text-decoration: none; border: 1px solid transparent;
+    transition: color .15s ease, background .15s ease, border-color .15s ease;
+  }
+  .ferramentas a svg {
+    width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .ferramentas a:hover { color: var(--text); background: var(--surface-2); }
+  .ferramentas a.ativa {
+    color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-border);
+  }
+
   * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -673,7 +689,17 @@
 </head>
 <body>
 <header>
-  <h1>Monitor VoIP <span id="subtitle">inventário de telefones IP</span></h1>
+  <h1>Kit DTI <span id="subtitle">inventário de telefones IP</span></h1>
+  <nav class="ferramentas">
+    <a href="/" class="ativa">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>
+      Telefones
+    </a>
+    <a href="/impressoras.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+      Impressoras
+    </a>
+  </nav>
   <div class="spacer"></div>
   <div class="lastcheck">
     <span class="lc-label">Último monitoramento</span>

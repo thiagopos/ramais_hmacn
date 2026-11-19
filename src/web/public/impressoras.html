@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Impressoras — Kit DTI</title>
+<style>
+  /* Mesmos tokens do restante do kit: tema escuro/claro pelo sistema. */
+  :root {
+    color-scheme: dark;
+    --bg: #0c0f14; --surface: #14181f; --surface-2: #1a1f27; --surface-3: #10141a;
+    --surface-hover: #1f242e; --line: #252a35; --line-strong: #384050;
+    --text: #e9ecf2; --text-2: #c2c9d6; --muted: #8a93a6;
+    --accent: #4f8cff; --accent-soft: rgba(79,140,255,.12);
+    --accent-border: rgba(79,140,255,.34); --accent-text: #9fc0ff; --on-accent: #fff;
+    --ok: #2ecc71; --ok-text: #6fe3a3; --ok-soft: rgba(46,204,113,.12); --ok-border: rgba(46,204,113,.38);
+    --warn: #f1c40f; --warn-text: #f5cd53; --warn-soft: rgba(241,196,15,.10); --warn-border: rgba(241,196,15,.38);
+    --bad: #e74c3c; --bad-text: #ff9187; --bad-soft: rgba(231,76,60,.12); --bad-border: rgba(231,76,60,.40);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.28); --shadow-md: 0 10px 30px rgba(0,0,0,.38);
+    --overlay: rgba(4,6,10,.74); --scroll: #333a47;
+    --skel-base: #1a1e26; --skel-shine: #252b35;
+    --r-sm: 7px; --r-md: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f3f5f9; --surface: #ffffff; --surface-2: #f7f9fc; --surface-3: #eff3f8;
+      --surface-hover: #edf2f9; --line: #e1e6ef; --line-strong: #c8d1df;
+      --text: #15191f; --text-2: #3c4453; --muted: #667085;
+      --accent: #2563eb; --accent-soft: rgba(37,99,235,.08);
+      --accent-border: rgba(37,99,235,.26); --accent-text: #1d4ed8;
+      --ok: #16a34a; --ok-text: #15803d; --ok-soft: rgba(22,163,74,.10); --ok-border: rgba(22,163,74,.30);
+      --warn: #d97706; --warn-text: #b45309; --warn-soft: rgba(217,119,6,.10); --warn-border: rgba(217,119,6,.30);
+      --bad: #dc2626; --bad-text: #b91c1c; --bad-soft: rgba(220,38,38,.09); --bad-border: rgba(220,38,38,.28);
+      --shadow-sm: 0 1px 2px rgba(15,23,42,.06); --shadow-md: 0 8px 24px rgba(15,23,42,.10);
+      --overlay: rgba(17,24,39,.38); --scroll: #c3ccda;
+      --skel-base: #e7ecf3; --skel-shine: #f3f6fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  * { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+
+  /* ---- cabecalho igual ao da tela de telefones ---- */
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 13px 24px; background: var(--surface); border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 10; box-shadow: var(--shadow-sm);
+  }
+  h1 { font-size: 16.5px; margin: 0; font-weight: 650; letter-spacing: -.015em; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 12.5px; margin-left: 9px; letter-spacing: 0; }
+  .spacer { flex: 1; }
+  .ferramentas { display: flex; gap: 4px; margin-left: 4px; }
+  .ferramentas a {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 13px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    color: var(--muted); text-decoration: none; border: 1px solid transparent;
+    transition: color .15s ease, background .15s ease, border-color .15s ease;
+  }
+  .ferramentas a svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ferramentas a:hover { color: var(--text); background: var(--surface-2); }
+  .ferramentas a.ativa { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-border); }
+
+  button {
+    background: var(--accent); color: var(--on-accent); border: 0; border-radius: var(--r-sm);
+    padding: 8px 15px; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: filter .15s ease, transform .06s ease;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-sec { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--line); }
+  .btn-sec:hover { border-color: var(--line-strong); color: var(--text); filter: none; }
+
+  /* ---- cartoes de resumo ---- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 18px 24px 0; }
+  .card {
+    position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 15px 16px 13px; box-shadow: var(--shadow-sm);
+  }
+  .card::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: var(--line-strong); opacity: .5; }
+  .card.ok::before { background: var(--ok); opacity: .9; }
+  .card.bad::before { background: var(--bad); opacity: .9; }
+  .card.warn::before { background: var(--warn); opacity: .9; }
+  .card .n { font-size: 26px; font-weight: 650; letter-spacing: -.6px; line-height: 1.15;
+    font-variant-numeric: tabular-nums; }
+  .card .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+    margin-top: 2px; font-weight: 600; }
+  .card.ok .n { color: var(--ok); }
+  .card.bad .n { color: var(--bad); }
+  .card.warn .n { color: var(--warn); }
+
+  /* ---- filtros ---- */
+  .controls { display: flex; gap: 10px; padding: 18px 24px; flex-wrap: wrap; align-items: center; }
+  input[type=search], select {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    padding: 9px 12px; border-radius: var(--r-sm); font-size: 14px; outline: none; font-family: inherit;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  select { cursor: pointer; min-width: 190px; }
+  input[type=search] { min-width: 250px; }
+  input[type=search]::placeholder { color: var(--muted); }
+  input[type=search]:hover, select:hover { border-color: var(--line-strong); }
+  input[type=search]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .contagem { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+
+  /* ---- tabela ---- */
+  .wrap { padding: 0 24px 40px; }
+  table {
+    width: 100%; border-collapse: separate; border-spacing: 0;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--r-md); overflow: hidden; box-shadow: var(--shadow-sm);
+  }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th {
+    background: var(--surface-2); color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .07em; cursor: pointer; user-select: none; font-weight: 600;
+    transition: color .15s ease, background .15s ease;
+  }
+  th:hover { color: var(--text); background: var(--surface-hover); }
+  th .arw { opacity: .55; font-size: 10px; margin-left: 2px; }
+  tbody tr { cursor: pointer; transition: background .12s ease; }
+  tbody tr:hover { background: var(--surface-hover); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+
+  .setor-tag {
+    display: inline-block; background: var(--surface-2); border: 1px solid var(--line);
+    color: var(--muted); border-radius: 5px; padding: 1px 7px; font-size: 12px;
+  }
+  .mono { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; }
+  .muted { color: var(--muted); }
+
+  /* ---- nivel do consumivel ---- */
+  .nivel { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .barra {
+    width: 62px; height: 6px; border-radius: 3px; background: var(--surface-3);
+    border: 1px solid var(--line); overflow: hidden; flex: none;
+  }
+  .barra i { display: block; height: 100%; border-radius: 2px; background: var(--ok); }
+  .barra.media i { background: var(--warn); }
+  .barra.baixa i { background: var(--bad); }
+  .pct { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 34px; text-align: right; }
+  .pct.ok { color: var(--ok-text); }
+  .pct.atencao { color: var(--warn-text); }
+  .pct.critico { color: var(--bad-text); }
+
+  .badge-modelo {
+    display: inline-block; padding: 2px 9px; border-radius: 6px; font-size: 11.5px;
+    font-weight: 600; background: var(--accent-soft); border: 1px solid var(--accent-border);
+    color: var(--accent-text);
+  }
+
+  /* ---- estado da impressora ---- */
+  .dot-lg {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%; border: 1px solid transparent;
+  }
+  .dot-lg svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .dot-lg.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
+  .dot-lg.atencao { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
+  .dot-lg.critico { color: var(--bad); background: var(--bad-soft); border-color: var(--bad-border); }
+  .dot-lg.offline { color: var(--muted); background: var(--surface-2); border-color: var(--line-strong); }
+  .dot-lg.sem_leitura { color: var(--muted); background: var(--surface-2); border-color: var(--line-strong); }
+
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  }
+  .chip.critico { background: var(--bad-soft); border: 1px solid var(--bad-border); color: var(--bad-text); }
+  .chip.atencao { background: var(--warn-soft); border: 1px solid var(--warn-border); color: var(--warn-text); }
+  .chip.offline { background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); }
+
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+
+  /* ---- painel lateral ---- */
+  #drawer {
+    position: fixed; inset: 0 0 0 auto; width: min(560px, 92vw); background: var(--surface);
+    border-left: 1px solid var(--line); padding: 22px 26px 40px; overflow-y: auto;
+    transform: translateX(100%); transition: transform .22s ease; z-index: 20;
+    box-shadow: -20px 0 60px rgba(0,0,0,.5);
+  }
+  #drawer.open { transform: translateX(0); }
+  #drawer h2 { margin: 0 0 4px; font-size: 19px; padding-right: 84px; }
+  #close { position: absolute; top: 16px; right: 16px; background: var(--surface-2);
+    border: 1px solid var(--line); color: var(--text-2); padding: 5px 11px; border-radius: var(--r-sm);
+    font-size: 13px; font-weight: 550; }
+  dl { display: grid; grid-template-columns: 118px 1fr; gap: 8px 14px; margin: 18px 0; }
+  dt { color: var(--muted); font-size: 12.5px; }
+  dd { margin: 0; word-break: break-all; }
+
+  .cons-lista { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .cons {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    background: var(--surface-3); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 8px; padding: 9px 12px;
+  }
+  .cons.critico { border-left-color: var(--bad); }
+  .cons.atencao { border-left-color: var(--warn); }
+  .cons .nome { font-size: 12.5px; line-height: 1.35; }
+  .cons .nome small { display: block; color: var(--muted); font-size: 11px; }
+  .cons .direita { text-align: right; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Kit DTI <span id="sub">inventário de impressoras</span></h1>
+  <nav class="ferramentas">
+    <a href="/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>
+      Telefones
+    </a>
+    <a href="/impressoras.html" class="ativa">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+      Impressoras
+    </a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="lastcheck">
+    <span class="lc-label">Última coleta</span>
+    <span class="lc-value" id="ultimaColeta">—</span>
+  </div>
+  <button id="btnColetar">
+    <span id="btnColetarLabel">Coletar agora</span>
+  </button>
+</header>
+
+<div class="cards" id="cards"></div>
+
+<div class="controls">
+  <input type="search" id="q" placeholder="Buscar por setor, IP, modelo ou série…">
+  <select id="estado">
+    <option value="">Todos os estados</option>
+    <option value="critico">Consumível crítico (&lt;10%)</option>
+    <option value="atencao">Atenção (&lt;30%)</option>
+    <option value="ok">Sem problemas</option>
+    <option value="offline">Sem resposta</option>
+  </select>
+  <select id="setor"><option value="">Todos os setores</option></select>
+  <select id="modelo"><option value="">Todos os modelos</option></select>
+  <span class="contagem" id="contagem"></span>
+</div>
+
+<div class="wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-k="estado" class="th-status">Estado <span class="arw"></span></th>
+        <th data-k="nome_exibicao">Setor <span class="arw"></span></th>
+        <th data-k="modelo">Modelo <span class="arw"></span></th>
+        <th data-k="ip">IP <span class="arw"></span></th>
+        <th data-k="pior_percentual" class="num">Pior consumível <span class="arw"></span></th>
+        <th data-k="pior_nome">Qual <span class="arw"></span></th>
+        <th data-k="paginas" class="num">Páginas <span class="arw"></span></th>
+        <th data-k="coletado_em">Coletado <span class="arw"></span></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="vazio" hidden>Nenhuma impressora encontrada.</div>
+</div>
+
+<div id="drawer">
+  <button id="close">Fechar</button>
+  <h2 id="dTitulo">—</h2>
+  <div class="muted" id="dSub"></div>
+  <div id="dEstado" style="margin-top:12px"></div>
+  <dl id="detalhes"></dl>
+  <h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin:22px 0 4px">Consumíveis</h3>
+  <div class="cons-lista" id="dConsumiveis"></div>
+</div>
+
+<script>
+let todas = [];
+let setores = [];
+let sortKey = 'pior_percentual';
+let sortDir = 1; // 1 = crescente aqui (pior primeiro)
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  let corpo = null;
+  try { corpo = await r.json(); } catch { /* sem JSON */ }
+  if (!r.ok) {
+    if (r.status === 401) { location.href = '/login'; throw new Error('sessão expirada'); }
+    throw new Error((corpo && (corpo.erro || corpo.error)) || 'falha ' + r.status);
+  }
+  return corpo;
+}
+
+function fmt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtNum(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('pt-BR');
+}
+
+const ICONES = {
+  ok: '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>',
+  atencao: '<svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>',
+  critico: '<svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>',
+  offline: '<svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  sem_leitura: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>',
+};
+const ROTULO = { ok: 'OK', atencao: 'Atenção', critico: 'Crítico', offline: 'Sem resposta', sem_leitura: 'Sem leitura' };
+
+function statusIcon(r) {
+  const e = r.estado;
+  return `<span class="dot-lg ${e}" title="${ROTULO[e]}" aria-label="${ROTULO[e]}">${ICONES[e]}</span>`;
+}
+
+/** Classe de cor a partir do percentual. */
+function classePct(p) {
+  if (p == null) return '';
+  if (p < 10) return 'critico';
+  if (p < 30) return 'atencao';
+  return 'ok';
+}
+
+function barra(p) {
+  const w = p == null ? 0 : Math.max(0, Math.min(100, p));
+  return `<span class="nivel">
+    <span class="barra ${classePct(p) === 'critico' ? 'baixa' : classePct(p) === 'atencao' ? 'media' : ''}"><i style="width:${w}%"></i></span>
+    <span class="pct ${classePct(p)}">${p == null ? '—' : p + '%'}</span>
+  </span>`;
+}
+
+function renderResumo(resumo) {
+  const cards = [
+    ['', resumo.total, 'Impressoras'],
+    ['ok', resumo.online, 'Respondendo'],
+    ['', resumo.offline, 'Sem resposta'],
+    ['bad', resumo.criticas, 'Críticas (&lt;10%)'],
+    ['warn', resumo.atencao, 'Atenção (&lt;30%)'],
+    ['bad', resumo.consumiveisCriticos, 'Consumíveis críticos'],
+  ];
+  document.getElementById('cards').innerHTML = cards
+    .map(([c, n, l]) => `<div class="card ${c}"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`)
+    .join('');
+  document.getElementById('ultimaColeta').textContent = fmt(resumo.ultimaColeta);
+}
+
+function render() {
+  const q = document.getElementById('q').value.toLowerCase().trim();
+  const est = document.getElementById('estado').value;
+  const set = document.getElementById('setor').value;
+  const mod = document.getElementById('modelo').value;
+
+  let rows = todas.filter((r) => {
+    if (q && ![r.setor, r.ip, r.modelo, r.serie, r.apelido, r.pior_nome]
+      .filter(Boolean).some((v) => String(v).toLowerCase().includes(q))) return false;
+    if (est && r.estado !== est) return false;
+    if (set && r.setor !== set) return false;
+    if (mod && r.modelo !== mod) return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (sortKey === 'pior_percentual') {
+      // sem leitura e offline vao para o fim
+      const px = x == null ? 999 : x;
+      const py = y == null ? 999 : y;
+      return (px - py) * sortDir;
+    }
+    if (sortKey === 'paginas') return ((x || 0) - (y || 0)) * sortDir;
+    if (sortKey === 'ip') {
+      const n = (ip) => String(ip || '').split('.').reduce((a, o) => a * 256 + (+o || 0), 0);
+      return (n(x) - n(y)) * sortDir;
+    }
+    const sx = String(x ?? ''), sy = String(y ?? '');
+    return sx.localeCompare(sy, 'pt-BR') * sortDir;
+  });
+
+  document.querySelectorAll('th').forEach((th) => {
+    const arw = th.querySelector('.arw');
+    if (arw) arw.textContent = th.dataset.k === sortKey ? (sortDir > 0 ? '▲' : '▼') : '';
+  });
+
+  document.getElementById('rows').innerHTML = rows.map((r, i) => `
+    <tr data-i="${i}">
+      <td class="td-status">${statusIcon(r)}</td>
+      <td><span class="setor-tag">${r.nome_exibicao}</span>${r.andar ? ` <span class="muted" style="font-size:11.5px">${r.andar}º</span>` : ''}</td>
+      <td>${r.modelo ? `<span class="badge-modelo">${r.modelo}</span>` : '<span class="muted">—</span>'}</td>
+      <td class="mono">${r.ip}</td>
+      <td class="num">${barra(r.pior_percentual)}</td>
+      <td>${r.pior_nome ? r.pior_nome : '<span class="muted">—</span>'}</td>
+      <td class="num">${fmtNum(r.paginas)}</td>
+      <td class="muted">${fmt(r.coletado_em)}</td>
+    </tr>`).join('');
+
+  document.getElementById('contagem').textContent = `${rows.length} de ${todas.length}`;
+  document.getElementById('vazio').hidden = rows.length > 0;
+
+  document.querySelectorAll('#rows tr').forEach((tr) => {
+    tr.onclick = () => abrirDetalhe(rows[+tr.dataset.i]);
+  });
+}
+
+function preencherFiltros() {
+  const selSetor = document.getElementById('setor');
+  const atual = selSetor.value;
+  selSetor.innerHTML = '<option value="">Todos os setores</option>' +
+    setores.map((s) => `<option value="${String(s.setor).replace(/"/g, '&quot;')}">${s.setor}</option>`).join('');
+  if (setores.some((s) => s.setor === atual)) selSetor.value = atual;
+
+  const selMod = document.getElementById('modelo');
+  const atualM = selMod.value;
+  const modelos = [...new Set(todas.map((r) => r.modelo).filter(Boolean))].sort();
+  selMod.innerHTML = '<option value="">Todos os modelos</option>' +
+    modelos.map((m) => `<option value="${m.replace(/"/g, '&quot;')}">${m}</option>`).join('');
+  if (modelos.includes(atualM)) selMod.value = atualM;
+}
+
+async function abrirDetalhe(r) {
+  const drawer = document.getElementById('drawer');
+  drawer.classList.add('open');
+  document.getElementById('dTitulo').textContent = r.nome_exibicao;
+  document.getElementById('dSub').textContent = `${r.ip}${r.apelido ? ' · ' + (r.setor || '') : ''}`;
+  document.getElementById('dEstado').innerHTML =
+    `${statusIcon(r)} <span class="chip ${r.estado}">${ROTULO[r.estado]}</span>`;
+  document.getElementById('detalhes').innerHTML = [
+    ['Modelo', r.modelo],
+    ['Série', r.serie],
+    ['Setor', r.setor],
+    ['Andar', r.andar ? r.andar + 'º' : null],
+    ['IP', r.ip],
+    ['Páginas', fmtNum(r.paginas)],
+    ['Coletado', fmt(r.coletado_em)],
+    ['Não respondeu', r.offline === 1 || r.online === 0 ? fmt(r.faltou_em) : null],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v == null || v === '' ? '—' : v}</dd>`).join('');
+
+  document.getElementById('dConsumiveis').innerHTML = '<div class="muted">carregando…</div>';
+
+  try {
+    const det = await api('/api/impressoras/' + encodeURIComponent(r.ip));
+    const lista = det.consumiveis || [];
+    if (!lista.length) {
+      document.getElementById('dConsumiveis').innerHTML = '<div class="muted">Nenhum consumível reportado.</div>';
+      return;
+    }
+    document.getElementById('dConsumiveis').innerHTML = lista.map((c) => {
+      const cls = classePct(c.percentual);
+      const extra = [c.part_number ? 'PN ' + c.part_number : null, c.serial ? 'S/N ' + c.serial : null]
+        .filter(Boolean).join(' · ');
+      return `<div class="cons ${cls}">
+        <div class="nome">${c.nome}${extra ? `<small>${extra}</small>` : ''}</div>
+        <div class="direita">${barra(c.percentual)}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('dConsumiveis').innerHTML = `<div class="muted">${e.message}</div>`;
+  }
+}
+
+document.getElementById('close').onclick = () => document.getElementById('drawer').classList.remove('open');
+
+document.querySelectorAll('th').forEach((th) => {
+  th.onclick = () => {
+    if (sortKey === th.dataset.k) sortDir *= -1;
+    else { sortKey = th.dataset.k; sortDir = 1; }
+    render();
+  };
+});
+
+['q', 'estado', 'setor', 'modelo'].forEach((id) => {
+  document.getElementById(id).addEventListener('input', render);
+});
+
+document.getElementById('btnColetar').onclick = async () => {
+  const btn = document.getElementById('btnColetar');
+  const rotulo = document.getElementById('btnColetarLabel');
+  btn.disabled = true;
+  rotulo.textContent = 'Coletando…';
+  try {
+    await api('/api/impressoras/coletar', { method: 'POST' });
+    // acompanha ate terminar
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const st = await api('/api/impressoras/status');
+      if (!st.coletando) break;
+    }
+    await carregar();
+  } catch (e) {
+    alert('Falha na coleta: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    rotulo.textContent = 'Coletar agora';
+  }
+};
+
+async function carregar() {
+  const d = await api('/api/impressoras');
+  todas = d.rows;
+  setores = d.setores;
+  renderResumo(d.resumo);
+  preencherFiltros();
+  render();
+}
+
+carregar().catch((e) => {
+  document.getElementById('rows').innerHTML =
+    `<tr><td colspan="8" class="empty">${e.message}</td></tr>`;
+});
+</script>
+</body>
+</html>

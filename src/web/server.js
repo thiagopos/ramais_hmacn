@@ -34,6 +34,11 @@ import {
 } from './auth.js';
 import { autenticar, buscarUsuarios, buscarPorLogin } from './ldap.js';
 import { carregarConfigAd } from '../../config/ad.js';
+import {
+  listarImpressoras, detalheImpressora, resumoImpressoras,
+  setoresDasImpressoras, listarConsumiveis,
+} from '../lib/impressoras-db.js';
+import { criarTabelasImpressoras } from '../lib/impressoras-schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
@@ -270,6 +275,8 @@ async function readJsonBody(req, limit = 64 * 1024) {
 export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '127.0.0.1', ssl = null } = {}) {
   // garante schema
   const dbBoot = openDb(dbPath);
+  // tabelas do modulo de impressoras (criadas na primeira abertura)
+  criarTabelasImpressoras(dbBoot);
 
   // Cache materializado vazio (banco restaurado de backup ou primeiro uso):
   // constroi agora, senao a interface mostraria tudo zerado ate o proximo
@@ -608,6 +615,56 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         return json(req, res, 202, { started: true, startedAt: mon.startedAt });
       }
 
+      // ---------------- impressoras ----------------
+
+      if (route === '/api/impressoras' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = listarImpressoras(db);
+        const setores = setoresDasImpressoras(db);
+        const resumo = resumoImpressoras(db);
+        db.close();
+        return json(req, res, 200, { rows, setores, resumo });
+      }
+
+      if (route === '/api/impressoras/consumiveis' && req.method === 'GET') {
+        const db = openDb(dbPath);
+        const rows = listarConsumiveis(db);
+        db.close();
+        return json(req, res, 200, { rows });
+      }
+
+      if (route.startsWith('/api/impressoras/') && req.method === 'GET') {
+        const ip = decodeURIComponent(route.slice('/api/impressoras/'.length));
+        const db = openDb(dbPath);
+        const det = detalheImpressora(db, ip);
+        db.close();
+        if (!det) return json(req, res, 404, { error: 'impressora nao encontrada' });
+        return json(req, res, 200, det);
+      }
+
+      // coleta sob demanda (mesma logica do script, em processo separado)
+      if (route === '/api/impressoras/coletar' && req.method === 'POST') {
+        if (mon.coletandoImpressoras) {
+          return json(req, res, 409, { error: 'Já existe uma coleta de impressoras em andamento.' });
+        }
+        mon.coletandoImpressoras = true;
+        const filho = spawn(process.execPath, [
+          path.join(RAIZ, 'scripts', 'coletar-impressoras.mjs'),
+          '--db', path.resolve(dbPath),
+        ], { cwd: RAIZ, stdio: 'ignore', windowsHide: true });
+
+        filho.on('error', () => { mon.coletandoImpressoras = false; });
+        filho.on('exit', (code) => {
+          mon.coletandoImpressoras = false;
+          console.log(`[impressoras] coleta concluida (codigo ${code})`);
+        });
+        return json(req, res, 202, { started: true });
+      }
+
+      if (route === '/api/impressoras/status' && req.method === 'GET') {
+        return json(req, res, 200, { coletando: !!mon.coletandoImpressoras });
+      }
+
       if (route === '/api/scope' && req.method === 'GET') {
         const db = openDb(dbPath);
         const scopes = knownTargets(db);
@@ -738,7 +795,9 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
         // Usuario e senha vem da query e so existem durante este teste visual.
         const usuarioAd = url.searchParams.get('u') || '';
         const senhaAd = url.searchParams.get('p') || '';
-        const cfg = JSON.stringify({ row: n, click, filtro, u: usuarioAd, p: senhaAd });
+        // pagina a abrir dentro do iframe (padrao: raiz)
+        const pagina = url.searchParams.get('pagina') || '/';
+        const cfg = JSON.stringify({ row: n, click, filtro, u: usuarioAd, p: senhaAd, pagina });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`<!DOCTYPE html><html><body style="margin:0">
 <iframe id="f" style="width:100vw;height:${altura}px;border:0;display:block"></iframe>
@@ -756,7 +815,7 @@ async function go() {
       redirect: "manual",
     }).catch(function () {});
   }
-  f.src = "/?t=" + Date.now() + CFG.filtro;
+  f.src = (CFG.pagina || "/") + "?t=" + Date.now() + CFG.filtro;
 }
 f.onload = function () {
   try {
