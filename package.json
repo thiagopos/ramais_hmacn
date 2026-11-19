@@ -38,7 +38,8 @@
   "author": "Thiago Possa",
   "license": "MIT",
   "dependencies": {
-    "ldapjs": "^3.0.7"
+    "ldapjs": "^3.0.7",
+    "net-snmp": "^3.29.3"
   },
   "files": [
     "src",
