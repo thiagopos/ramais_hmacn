@@ -268,6 +268,7 @@
     <option value="atencao">Atenção (&lt;30%)</option>
     <option value="ok">Sem problemas</option>
     <option value="offline">Sem resposta</option>
+    <option value="trocada">Série trocada (remanejada)</option>
   </select>
   <select id="setor"><option value="">Todos os setores</option></select>
   <select id="modelo"><option value="">Todos os modelos</option></select>
@@ -370,6 +371,7 @@ function renderResumo(resumo) {
     ['', resumo.offline, 'Sem resposta'],
     ['bad', resumo.criticas, 'Críticas (&lt;10%)'],
     ['warn', resumo.atencao, 'Atenção (&lt;30%)'],
+    ['warn', resumo.trocadas, 'Série trocada'],
     ['bad', resumo.consumiveisCriticos, 'Consumíveis críticos'],
   ];
   document.getElementById('cards').innerHTML = cards
@@ -385,9 +387,13 @@ function render() {
   const mod = document.getElementById('modelo').value;
 
   let rows = todas.filter((r) => {
-    if (q && ![r.setor, r.ip, r.modelo, r.serie, r.apelido, r.pior_nome]
+    if (q && ![r.setor, r.ip, r.modelo, r.serie, r.apelido, r.local, r.pior_nome, r.serie_cadastro]
       .filter(Boolean).some((v) => String(v).toLowerCase().includes(q))) return false;
-    if (est && r.estado !== est) return false;
+    // 'trocada' e uma dimensao propria: filtra pelo alerta de serie, nao pelo
+    // estado do consumivel. As demais opcoes seguem filtrando por estado.
+    if (est === 'trocada') {
+      if (!r.serie_trocada) return false;
+    } else if (est && r.estado !== est) return false;
     if (set && r.setor !== set) return false;
     if (mod && r.modelo !== mod) return false;
     return true;

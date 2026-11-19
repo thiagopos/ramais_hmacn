@@ -146,12 +146,19 @@ export function resumoImpressoras(db) {
 
   const ultima = db.prepare(`SELECT MAX(coletado_em) m FROM impressoras`).get();
 
+  // impressoras cuja serie lida difere da cadastrada (equipamento remanejado)
+  const serieCad = db.prepare(
+    `SELECT ip, serie, serie_cadastro FROM impressoras WHERE ativo = 1 AND serie IS NOT NULL AND serie_cadastro IS NOT NULL`,
+  ).all();
+  const trocadas = serieCad.filter((r) => normalizarSerie(r.serie) !== normalizarSerie(r.serie_cadastro)).length;
+
   return {
     total: base.total || 0,
     online: base.online || 0,
     offline: (base.total || 0) - (base.online || 0),
     criticas,
     atencao,
+    trocadas,
     semLeitura,
     consumiveis: consumiveis.total || 0,
     consumiveisCriticos: consumiveis.criticos || 0,
