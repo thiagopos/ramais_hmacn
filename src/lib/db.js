@@ -587,31 +587,35 @@ export function listDevices(db) {
 }
 
 /**
- * Procura o registro de um MESMO aparelho em outro IP.
+ * Procura o registro de um MESMO POSTO DE TRABALHO em outro IP.
  *
- * Um telefone tem tres marcas de identidade, da mais forte para a mais fraca:
- *   1. MAC  — identidade fisica, muda so se o hardware mudar
- *   2. ramal — identidade logica, mas pode ser reconfigurado
- *   3. IP   — so o endereco de rede, muda com DHCP
+ * A identidade de um telefone no hospital e o RAMAL, nao o hardware.
+ * Quando a empresa troca um aparelho com defeito, o novo chega com o mesmo
+ * ramal e MAC/IP diferentes — continua sendo o mesmo posto. Por isso o ramal
+ * vem PRIMEIRO:
  *
- * Se o aparelho que respondeu agora em `ipAtual` tem o mesmo MAC (ou o mesmo
- * ramal) de um registro antigo em outro IP, e o MESMO aparelho: o registro
- * antigo deve ser movido, nunca duplicado.
+ *   1. ramal — identidade logica do posto; sobrevive a troca de aparelho
+ *   2. MAC   — identidade fisica; usada quando o ramal ainda nao esta no banco
+ *              (primeira leitura do aparelho) ou mudou de configuracao
+ *   3. IP    — nunca serve: muda com DHCP e nao diz nada sobre o posto
  *
  * @returns {{ip:string, mac:string|null, ramal:string|null}|null}
  */
 export function acharMesmoAparelho(db, { mac, ramal, ipAtual }) {
+  // 1) mesmo ramal em outro IP: o posto mudou de aparelho (ou de endereco)
+  if (ramal) {
+    const porRamal = db.prepare(
+      `SELECT ip, mac, ramal FROM devices WHERE ramal = ? AND ip <> ?
+       ORDER BY online DESC, last_seen DESC LIMIT 1`,
+    ).get(ramal, ipAtual);
+    if (porRamal) return porRamal;
+  }
+  // 2) mesmo MAC em outro IP: o aparelho fisico mudou de endereco
   if (mac) {
     const porMac = db.prepare(
       `SELECT ip, mac, ramal FROM devices WHERE mac = ? AND ip <> ? LIMIT 1`,
     ).get(mac, ipAtual);
     if (porMac) return porMac;
-  }
-  if (ramal) {
-    const porRamal = db.prepare(
-      `SELECT ip, mac, ramal FROM devices WHERE ramal = ? AND ip <> ? LIMIT 1`,
-    ).get(ramal, ipAtual);
-    if (porRamal) return porRamal;
   }
   return null;
 }
@@ -629,28 +633,43 @@ export function acharMesmoAparelho(db, { mac, ramal, ipAtual }) {
  *
  * @returns {{ok:boolean, erro?:string}}
  */
+/**
+ * Assenta o registro de um posto de trabalho no IP onde ele respondeu agora.
+ *
+ * Cobre os dois casos reais do hospital:
+ *  A) o MESMO aparelho mudou de IP (DHCP, VLAN, Wi-Fi) — MAC igual
+ *  B) TROCARAM o aparelho mantendo o ramal — MAC/IP diferentes
+ *
+ * Nos dois, o IP antigo e liberado e o posto fica com UMA linha so. O que se
+ * herda do registro antigo e o que pertence ao POSTO, nao ao hardware:
+ * first_seen (ha quanto tempo o posto existe) e notes. MAC, serie, modelo,
+ * firmware e last_seen vem do aparelho que esta respondendo agora.
+ *
+ * @returns {{ok:boolean, erro?:string, trocouHardware?:boolean}}
+ */
 export function mudarIpDoAparelho(db, scanId, { ipAntigo, ipNovo, id }) {
   if (!ipAntigo || ipAntigo === ipNovo) return { ok: false, erro: 'IPs iguais' };
   const antigo = db.prepare(`SELECT * FROM devices WHERE ip = ?`).get(ipAntigo);
   if (!antigo) return { ok: false, erro: 'registro de origem nao encontrado' };
 
-  // o IP de destino pode estar ocupado por outro aparelho. Nesse caso NAO
-  // sobrescrevemos: o endereco pertence a quem esta respondendo nele agora.
-  // Isso acontece em DHCP com reserva vencida — e perder o outro aparelho
-  // seria pior que nao mover este.
+  const trocouHardware = !!id.mac && !!antigo.mac && id.mac !== antigo.mac;
+
+  // o IP de destino pode estar ocupado por OUTRO Posto (DHCP com reserva
+  // vencida). Nao sobrescrevemos: o endereco pertence a quem responde nele.
   const ocupado = db.prepare(`SELECT ramal, mac FROM devices WHERE ip = ?`).get(ipNovo);
-  if (ocupado && ocupado.mac !== id.mac) {
+  if (ocupado && ocupado.mac && id.mac && ocupado.mac !== id.mac
+      && ocupado.ramal && ocupado.ramal !== id.ramal) {
     return {
       ok: false,
-      erro: `o IP ${ipNovo} ja pertence ao ramal ${ocupado.ramal || 'sem ramal'} — nao sobrescrito`,
+      erro: `o IP ${ipNovo} ja pertence ao ramal ${ocupado.ramal} — nao sobrescrito`,
     };
   }
 
   const now = new Date().toISOString();
   db.exec('BEGIN IMMEDIATE');
   try {
-    // o IP antigo sai primeiro: se o destino ja tiver uma linha residual do
-    // proprio aparelho, o INSERT abaixo atualiza em vez de conflitar
+    // o IP antigo sai primeiro: se o destino ja tiver uma linha residual,
+    // o INSERT abaixo atualiza em vez de conflitar
     db.prepare(`DELETE FROM ports WHERE ip = ?`).run(ipAntigo);
     db.prepare(`DELETE FROM device_stats WHERE ip = ?`).run(ipAntigo);
     db.prepare(`DELETE FROM monitor_samples WHERE ip = ?`).run(ipAntigo);
@@ -663,15 +682,34 @@ export function mudarIpDoAparelho(db, scanId, { ipAntigo, ipNovo, id }) {
       VALUES (?, ?, ?, ?, ?, ?, ?, 'phone', 95, ?, ?, ?, 1, ?, ?, ?, ?, 1, NULL)
       ON CONFLICT(ip) DO UPDATE SET
         first_seen = MIN(devices.first_seen, excluded.first_seen),
-        last_seen = excluded.last_seen, mac = excluded.mac, model = excluded.model,
-        sip_user_agent = excluded.sip_user_agent, ramal = excluded.ramal,
-        firmware = excluded.firmware, serial = COALESCE(excluded.serial, devices.serial),
-        sip_ua = excluded.sip_ua, online = 1, missing_since = NULL
+        last_seen = excluded.last_seen,
+        -- hardware: sempre o do aparelho que respondeu agora
+        mac = COALESCE(excluded.mac, devices.mac),
+        model = COALESCE(excluded.model, devices.model),
+        firmware = excluded.firmware,
+        serial = excluded.serial,
+        sip_user_agent = excluded.sip_user_agent,
+        sip_ua = excluded.sip_ua,
+        ramal = excluded.ramal,
+        online = 1, missing_since = NULL
     `).run(
-      ipNovo, antigo.first_seen || now, now, id.mac || antigo.mac, antigo.hostname,
-      antigo.vendor, id.model ? `ALE ${id.model}` : antigo.model,
-      id.ua || antigo.sip_user_agent || null, antigo.ports_json, antigo.notes,
-      id.ramal, id.firmware, id.serial, id.ua || null,
+      ipNovo,
+      // primeiro visto do POSTO (nao do aparelho): o posto existe desde o
+      // primeiro aparelho que o ocupou
+      antigo.first_seen || now,
+      now,
+      id.mac || antigo.mac,
+      antigo.hostname,
+      antigo.vendor,
+      id.model ? `ALE ${id.model}` : antigo.model,
+      id.ua || null,
+      antigo.ports_json,
+      // anotacao manual do posto continua valendo
+      antigo.notes,
+      id.ramal,
+      id.firmware,
+      id.serial,
+      id.ua || null,
     );
 
     db.exec('COMMIT');
@@ -680,9 +718,12 @@ export function mudarIpDoAparelho(db, scanId, { ipAntigo, ipNovo, id }) {
     return { ok: false, erro: e.message };
   }
 
-  logEvent(db, scanId, ipNovo, 'ip_mudou',
-    `ramal ${id.ramal || '?'}: ${ipAntigo} -> ${ipNovo}`);
-  return { ok: true };
+  logEvent(db, scanId, ipNovo, trocouHardware ? 'aparelho_trocado' : 'ip_mudou',
+    trocouHardware
+      ? `ramal ${id.ramal || '?'}: aparelho trocado (${antigo.ip} / ${antigo.mac} -> ${ipNovo} / ${id.mac})`
+      : `ramal ${id.ramal || '?'}: ${ipAntigo} -> ${ipNovo}`);
+
+  return { ok: true, trocouHardware };
 }
 
 /**

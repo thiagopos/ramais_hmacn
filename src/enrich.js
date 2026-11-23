@@ -68,16 +68,20 @@ export async function enrichPhones({
 
     // 2) novos aparelhos que apareceram no range
     //
-    // UM MESMO APARELHO NAO PODE EXISTIR EM DOIS IPs. Quando um telefone troca
-    // de endereco (DHCP, mudanca de VLAN, Wi-Fi), o IP antigo continua na tabela
-    // marcado como offline e o novo entraria como "novo" — a lista ficaria com o
-    // mesmo ramal duas vezes, uma delas mentindo.
+    // A IDENTIDADE DE UM TELEFONE E O RAMAL, nao o IP nem o MAC.
     //
-    // O MAC (e, na falta dele, o ramal) e a identidade fisica: se o aparelho que
-    // respondeu em `ip` tem a mesma identidade de um registro em OUTRO ip, o
-    // registro antigo e movido, nao duplicado.
+    // O posto de trabalho e o ramal: quando a empresa troca um aparelho com
+    // defeito, o novo entra com o MESMO ramal e IP/MAC completamente
+    // diferentes. Tratar MAC/IP como identidade faria o inventario mostrar o
+    // ramal duas vezes — o velho parado como "desaparecido" e o novo como
+    // "descoberto" — vendendo um aparelho que nao existe mais.
+    //
+    // Regra: se o aparelho que respondeu tem um ramal que ja existe em outro
+    // IP, o registro antigo e SUBSTITUIDO. O que se aproveita do antigo e o que
+    // nao pertence ao hardware (primeiro visto, setor), nao MAC/serie/modelo.
     const novos = [];
     const movidos = [];
+    const substituidos = [];
 
     for (const [ip, id] of found) {
       if (known.has(ip)) continue; // ja conhecido neste IP
@@ -85,13 +89,26 @@ export async function enrichPhones({
       const anterior = acharMesmoAparelho(db, { mac: id.mac, ramal: id.ramal, ipAtual: ip });
 
       if (anterior) {
-        mudarIpDoAparelho(db, scanId, { ipAntigo: anterior.ip, ipNovo: ip, id });
-        movidos.push({
+        // mesmo MAC => o aparelho so mudou de IP; MAC diferente => trocaram o
+        // aparelho e mantiveram o ramal. Os dois casos resolvem igual: o
+        // registro antigo sai e o novo assume o ramal, sem duplicar.
+        const mesmoHardware = !!id.mac && anterior.mac === id.mac;
+        const r = mudarIpDoAparelho(db, scanId, { ipAntigo: anterior.ip, ipNovo: ip, id });
+        if (!r.ok) {
+          // destino ocupado por outro aparelho: nao sobrescreve, so avisa
+          log(`  ${c.yellow('aviso')} ramal ${id.ramal}: ${r.erro}`);
+          continue;
+        }
+        const registro = {
           ramal: id.ramal,
           de: anterior.ip,
           para: ip,
-          motivo: anterior.mac === id.mac ? 'mac' : 'ramal',
-        });
+          macAntigo: anterior.mac,
+          macNovo: id.mac,
+          mesmoHardware,
+        };
+        if (mesmoHardware) movidos.push(registro);
+        else substituidos.push(registro);
         continue;
       }
 
@@ -146,9 +163,15 @@ export async function enrichPhones({
       for (const n of novos) log(`    ${n.ip.padEnd(15)} ramal ${n.ramal || '?'}  ${n.model || ''} ${n.firmware || ''}`);
     }
     if (movidos.length) {
-      log(`\n  ${c.yellow('APARELHOS QUE MUDARAM DE IP:')}`);
+      log(`\n  ${c.yellow('APARELHOS QUE MUDARAM DE IP:')} ${c.dim('(mesmo aparelho, endereco novo)')}`);
       for (const m of movidos) {
-        log(`    ramal ${String(m.ramal || '?').padEnd(7)} ${m.de} -> ${m.para}  ${c.dim('(identificado por ' + m.motivo + ')')}`);
+        log(`    ramal ${String(m.ramal || '?').padEnd(7)} ${m.de} -> ${m.para}`);
+      }
+    }
+    if (substituidos.length) {
+      log(`\n  ${c.yellow('APARELHOS SUBSTITUIDOS:')} ${c.dim('(mesmo ramal, aparelho novo)')}`);
+      for (const s of substituidos) {
+        log(`    ramal ${String(s.ramal || '?').padEnd(7)} ${s.de} (${s.macAntigo}) -> ${s.para} (${s.macNovo})`);
       }
     }
     if (desaparecidos.length) {
@@ -164,7 +187,7 @@ export async function enrichPhones({
     return {
       total: rows.length, scanned: allIps.length, found: found.size,
       online, offline: rows.length - online, withRamal,
-      novos, desaparecidos, changed, movidos,
+      novos, desaparecidos, changed, movidos, substituidos,
     };
   }
 
