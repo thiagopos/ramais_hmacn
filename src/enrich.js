@@ -7,6 +7,7 @@ import { pMap } from './lib/pool.js';
 import { expandTargets, DEFAULT_TARGETS } from './config.js';
 import {
   openDb, updateSipIdentity, setPresence, logEvent, registerNewDevice,
+  acharMesmoAparelho, mudarIpDoAparelho,
   startMonitorRun, finishMonitorRun, insertSample, inventoryRows, createScan, pruneSamples,
   knownTargets, maybeVacuum, refreshStats, devicesParaMonitor,
 } from './lib/db.js';
@@ -66,12 +67,36 @@ export async function enrichPhones({
     if (verbose) process.stdout.write('\n');
 
     // 2) novos aparelhos que apareceram no range
+    //
+    // UM MESMO APARELHO NAO PODE EXISTIR EM DOIS IPs. Quando um telefone troca
+    // de endereco (DHCP, mudanca de VLAN, Wi-Fi), o IP antigo continua na tabela
+    // marcado como offline e o novo entraria como "novo" — a lista ficaria com o
+    // mesmo ramal duas vezes, uma delas mentindo.
+    //
+    // O MAC (e, na falta dele, o ramal) e a identidade fisica: se o aparelho que
+    // respondeu em `ip` tem a mesma identidade de um registro em OUTRO ip, o
+    // registro antigo e movido, nao duplicado.
     const novos = [];
+    const movidos = [];
+
     for (const [ip, id] of found) {
-      if (!known.has(ip)) {
-        registerNewDevice(db, scanId, ip, id);
-        novos.push({ ip, ramal: id.ramal, model: id.model, firmware: id.firmware });
+      if (known.has(ip)) continue; // ja conhecido neste IP
+
+      const anterior = acharMesmoAparelho(db, { mac: id.mac, ramal: id.ramal, ipAtual: ip });
+
+      if (anterior) {
+        mudarIpDoAparelho(db, scanId, { ipAntigo: anterior.ip, ipNovo: ip, id });
+        movidos.push({
+          ramal: id.ramal,
+          de: anterior.ip,
+          para: ip,
+          motivo: anterior.mac === id.mac ? 'mac' : 'ramal',
+        });
+        continue;
       }
+
+      registerNewDevice(db, scanId, ip, id);
+      novos.push({ ip, ramal: id.ramal, model: id.model, firmware: id.firmware });
     }
 
     // 3) quem sumiu: conhecidos que nao responderam nesta varredura
@@ -120,6 +145,12 @@ export async function enrichPhones({
       log(`\n  ${c.yellow('NOVOS aparelhos no range:')}`);
       for (const n of novos) log(`    ${n.ip.padEnd(15)} ramal ${n.ramal || '?'}  ${n.model || ''} ${n.firmware || ''}`);
     }
+    if (movidos.length) {
+      log(`\n  ${c.yellow('APARELHOS QUE MUDARAM DE IP:')}`);
+      for (const m of movidos) {
+        log(`    ramal ${String(m.ramal || '?').padEnd(7)} ${m.de} -> ${m.para}  ${c.dim('(identificado por ' + m.motivo + ')')}`);
+      }
+    }
     if (desaparecidos.length) {
       log(`\n  ${c.red('DESAPARECIDOS (nao responderam):')}`);
       for (const d of desaparecidos) log(`    ${d.ip.padEnd(15)} ramal ${d.ramal || '?'}  visto em ${d.last_seen}`);
@@ -133,7 +164,7 @@ export async function enrichPhones({
     return {
       total: rows.length, scanned: allIps.length, found: found.size,
       online, offline: rows.length - online, withRamal,
-      novos, desaparecidos, changed,
+      novos, desaparecidos, changed, movidos,
     };
   }
 

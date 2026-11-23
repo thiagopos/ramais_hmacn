@@ -73,8 +73,13 @@ check('scope tem alvos', Array.isArray(scope.targets) && scope.targets.length > 
 
 console.log('\n--- historico de quedas ---');
 const q = J(await req('GET', '/api/quedas?ip=172.18.90.82', { cookie }));
-check('quedas do 402243 agrupadas em 5', q.count === 5, `count=${q.count}`);
-check('resumo com maior queda', q.resumo.maior === 450, `maior=${q.resumo.maior}`);
+// o numero de episodios cresce com o tempo (o aparelho cai mais) — o que se
+// testa aqui e o AGRUPAMENTO: varias coletas offline viram poucos episodios,
+// e nao uma linha por coleta. Fixar o numero fazia o teste quebrar sozinho.
+check('quedas do 402243 vem agrupadas',
+  q.count > 0 && q.count < (q.resumo?.coletas ?? Infinity),
+  `${q.count} episodio(s) para ${q.resumo?.coletas ?? '?'} coletas offline`);
+check('resumo tem maior queda', q.resumo && q.resumo.maior > 0, `maior=${q.resumo?.maior} min`);
 
 console.log('\n--- setores ---');
 const cat = J(await req('GET', '/api/setores/catalogo', { cookie }));

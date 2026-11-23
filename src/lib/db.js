@@ -587,6 +587,105 @@ export function listDevices(db) {
 }
 
 /**
+ * Procura o registro de um MESMO aparelho em outro IP.
+ *
+ * Um telefone tem tres marcas de identidade, da mais forte para a mais fraca:
+ *   1. MAC  — identidade fisica, muda so se o hardware mudar
+ *   2. ramal — identidade logica, mas pode ser reconfigurado
+ *   3. IP   — so o endereco de rede, muda com DHCP
+ *
+ * Se o aparelho que respondeu agora em `ipAtual` tem o mesmo MAC (ou o mesmo
+ * ramal) de um registro antigo em outro IP, e o MESMO aparelho: o registro
+ * antigo deve ser movido, nunca duplicado.
+ *
+ * @returns {{ip:string, mac:string|null, ramal:string|null}|null}
+ */
+export function acharMesmoAparelho(db, { mac, ramal, ipAtual }) {
+  if (mac) {
+    const porMac = db.prepare(
+      `SELECT ip, mac, ramal FROM devices WHERE mac = ? AND ip <> ? LIMIT 1`,
+    ).get(mac, ipAtual);
+    if (porMac) return porMac;
+  }
+  if (ramal) {
+    const porRamal = db.prepare(
+      `SELECT ip, mac, ramal FROM devices WHERE ramal = ? AND ip <> ? LIMIT 1`,
+    ).get(ramal, ipAtual);
+    if (porRamal) return porRamal;
+  }
+  return null;
+}
+
+/**
+ * Move um aparelho para o novo IP.
+ *
+ * O IP antigo e liberado (a linha e apagada e o historico do endereco novo
+ * comeca limpo): manter as duas linhas deixaria o mesmo ramal na lista duas
+ * vezes, uma delas offline para sempre.
+ *
+ * O que NAO se perde: o vinculo de setor e do ramal (local_ramais usa o
+ * ramal_curto, nao o IP), e o device_stats e reconstruido no proximo ciclo.
+ * O evento fica registrado com o IP de origem e destino.
+ *
+ * @returns {{ok:boolean, erro?:string}}
+ */
+export function mudarIpDoAparelho(db, scanId, { ipAntigo, ipNovo, id }) {
+  if (!ipAntigo || ipAntigo === ipNovo) return { ok: false, erro: 'IPs iguais' };
+  const antigo = db.prepare(`SELECT * FROM devices WHERE ip = ?`).get(ipAntigo);
+  if (!antigo) return { ok: false, erro: 'registro de origem nao encontrado' };
+
+  // o IP de destino pode estar ocupado por outro aparelho. Nesse caso NAO
+  // sobrescrevemos: o endereco pertence a quem esta respondendo nele agora.
+  // Isso acontece em DHCP com reserva vencida — e perder o outro aparelho
+  // seria pior que nao mover este.
+  const ocupado = db.prepare(`SELECT ramal, mac FROM devices WHERE ip = ?`).get(ipNovo);
+  if (ocupado && ocupado.mac !== id.mac) {
+    return {
+      ok: false,
+      erro: `o IP ${ipNovo} ja pertence ao ramal ${ocupado.ramal || 'sem ramal'} — nao sobrescrito`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // o IP antigo sai primeiro: se o destino ja tiver uma linha residual do
+    // proprio aparelho, o INSERT abaixo atualiza em vez de conflitar
+    db.prepare(`DELETE FROM ports WHERE ip = ?`).run(ipAntigo);
+    db.prepare(`DELETE FROM device_stats WHERE ip = ?`).run(ipAntigo);
+    db.prepare(`DELETE FROM monitor_samples WHERE ip = ?`).run(ipAntigo);
+    db.prepare(`DELETE FROM devices WHERE ip = ?`).run(ipAntigo);
+
+    db.prepare(`
+      INSERT INTO devices (ip, first_seen, last_seen, mac, hostname, vendor, model, device_type,
+                           confidence, sip_user_agent, ports_json, notes, is_phone, ramal,
+                           firmware, serial, sip_ua, online, missing_since)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'phone', 95, ?, ?, ?, 1, ?, ?, ?, ?, 1, NULL)
+      ON CONFLICT(ip) DO UPDATE SET
+        first_seen = MIN(devices.first_seen, excluded.first_seen),
+        last_seen = excluded.last_seen, mac = excluded.mac, model = excluded.model,
+        sip_user_agent = excluded.sip_user_agent, ramal = excluded.ramal,
+        firmware = excluded.firmware, serial = COALESCE(excluded.serial, devices.serial),
+        sip_ua = excluded.sip_ua, online = 1, missing_since = NULL
+    `).run(
+      ipNovo, antigo.first_seen || now, now, id.mac || antigo.mac, antigo.hostname,
+      antigo.vendor, id.model ? `ALE ${id.model}` : antigo.model,
+      id.ua || antigo.sip_user_agent || null, antigo.ports_json, antigo.notes,
+      id.ramal, id.firmware, id.serial, id.ua || null,
+    );
+
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    return { ok: false, erro: e.message };
+  }
+
+  logEvent(db, scanId, ipNovo, 'ip_mudou',
+    `ramal ${id.ramal || '?'}: ${ipAntigo} -> ${ipNovo}`);
+  return { ok: true };
+}
+
+/**
  * Atualiza identidade SIP (ramal/modelo/firmware/serial) de um dispositivo.
  * Retorna se o ramal mudou.
  */
