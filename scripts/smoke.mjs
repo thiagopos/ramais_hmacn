@@ -53,7 +53,10 @@ check('com sessao retorna 200', comSessao.status === 200);
 
 console.log('\n--- dados ---');
 const phones = J(comSessao);
-check('lista tem 249 telefones', phones.count === 249, `count=${phones.count}`);
+// nao fixar o total: o inventario cresce quando um telefone aparece numa faixa
+// nova ou e descoberto. O que importa e o count bater com as linhas devolvidas.
+check('lista de telefones coerente', phones.count > 0 && phones.count === phones.rows.length,
+  `count=${phones.count} linhas=${phones.rows.length}`);
 check('lista NAO traz tls_json', phones.rows[0].tls_json === undefined);
 check('lista traz quedas', phones.rows[0].quedas !== undefined);
 
@@ -64,7 +67,11 @@ const det404 = await req('GET', '/api/phones/1.2.3.4', { cookie });
 check('detalhe inexistente -> 404', det404.status === 404);
 
 const stats = J(await req('GET', '/api/stats', { cookie }));
-check('stats: total 249', stats.total === 249);
+// idem: o total cresce com o inventario; o que se verifica e a coerencia
+// entre o total e a soma de online + offline
+check('stats: total = online + offline',
+  stats.total > 0 && stats.total === stats.online + stats.offline,
+  `${stats.total} = ${stats.online} + ${stats.offline}`);
 check('stats: instaveis >= 0', typeof stats.estabilidade.instaveis === 'number', `instaveis=${stats.estabilidade.instaveis}`);
 check('stats: quedasAbertas presente', stats.quedasAbertas !== undefined, `= ${stats.quedasAbertas}`);
 

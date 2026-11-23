@@ -48,6 +48,21 @@ export const UDP_PORTS = [
  */
 export const DEFAULT_TARGETS = ['10.0.0.0/24'];
 
+/**
+ * Faixas onde os telefones IP do hospital podem estar.
+ *
+ * `172.18.90.0/24` e `172.18.91.0/24` sao as faixas de VoIP previstas.
+ * `192.168.61.0/24` entrou porque aparelhos migraram para fora do padrao
+ * (caso do ramal 402153, que apareceu em 192.168.61.73). Enquanto a empresa
+ * de VoIP nao traz esses aparelhos de volta, a faixa precisa ser varrida —
+ * senao qualquer telefone que caia la vira falso "offline", mesmo tocando
+ * normalmente.
+ *
+ * O que NAO estiver aqui nao e varrido: um aparelho que mudar para outra
+ * faixa volta a desaparecer do inventario.
+ */
+export const MONITOR_TARGETS = ['172.18.90.0/24', '172.18.91.0/24', '192.168.61.0/24'];
+
 export const DEFAULTS = {
   /** Timeout do ICMP / conectividade inicial (ms). */
   pingTimeoutMs: 1000,

@@ -4,7 +4,7 @@
  */
 import { identifyViaSip, parseSipIdentity, sipOptionsTcpRaw } from './lib/sipid.js';
 import { pMap } from './lib/pool.js';
-import { expandTargets, DEFAULT_TARGETS } from './config.js';
+import { expandTargets, DEFAULT_TARGETS, MONITOR_TARGETS } from './config.js';
 import {
   openDb, updateSipIdentity, setPresence, logEvent, registerNewDevice,
   acharMesmoAparelho, mudarIpDoAparelho,
@@ -42,9 +42,18 @@ export async function enrichPhones({
   const rows = devicesParaMonitor(db);
   const t0 = Date.now();
 
-  // escopo da varredura: argumento > ranges de scans anteriores > padrao
-  const scope = targets || knownTargets(db);
-  const monitorTargets = scope.length ? scope : DEFAULT_TARGETS;
+  // escopo da varredura: argumento > MONITOR_TARGETS do config > ranges de
+  // scans anteriores > padrao.
+  //
+  // O config vem ANTES do historico de proposito: antes a cobertura era
+  // derivada do ultimo scan gravado, entao um scan com alvo parcial encolhia
+  // a varredura sem aviso — e um telefone fora das faixas voltava a parecer
+  // offline mesmo respondendo.
+  const doHistorico = knownTargets(db);
+  const monitorTargets = Array.isArray(targets) && targets.length
+    ? targets
+    : (MONITOR_TARGETS.length ? MONITOR_TARGETS
+      : (doHistorico.length ? doHistorico : DEFAULT_TARGETS));
 
   if (monitor) {
     const runId = startMonitorRun(db);
@@ -123,6 +132,14 @@ export async function enrichPhones({
     const changed = [];
 
     for (const r of rows) {
+      // o aparelho pode ter sido MOVIDO para outro IP durante esta varredura
+      // (passo 2). O `rows` foi lido antes da varredura, entao o IP antigo
+      // ainda aparece aqui — e trata-lo como "desaparecido" faria o mesmo
+      // ramal sair na lista duas vezes no mesmo ciclo: movido e desaparecido.
+      const jaMovido = movidos.some((m) => m.de === r.ip)
+        || substituidos.some((s) => s.de === r.ip);
+      if (jaMovido) continue;
+
       const id = found.get(r.ip);
       const isOnline = !!id;
       const presence = setPresence(db, r.ip, isOnline);
@@ -139,6 +156,14 @@ export async function enrichPhones({
         desaparecidos.push({ ip: r.ip, ramal: r.ramal, mac: r.mac, last_seen: r.last_seen });
       }
       insertSample(db, runId, r.ip, isOnline, id?.ramal ?? null, id?.firmware ?? null);
+    }
+
+    // o aparelho movido tambem conta como online e precisa de amostra no IP
+    // novo (ele nao esta em `rows`, que foi lido antes da varredura)
+    for (const m of [...movidos, ...substituidos]) {
+      online++;
+      withRamal++;
+      insertSample(db, runId, m.para, true, m.ramal, null);
     }
 
     finishMonitorRun(db, runId, {
