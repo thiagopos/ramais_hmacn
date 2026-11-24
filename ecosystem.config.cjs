@@ -46,8 +46,10 @@ module.exports = {
       instances: 1,
       // tarefa pontual: executa e termina; o PM2 acorda de novo no cron
       autorestart: false,
-      // 15 em 15 minutos: 96 ciclos/dia (~23 mil amostras/dia com 237 telefones)
-      cron_restart: '*/15 * * * *',
+      // 6 em 6 minutos: 240 ciclos/dia. A varredura leva ~3,6s para os 768
+      // IPs, entao o intervalo e folgado — nao ha risco de um ciclo pegar o
+      // anterior rodando.
+      cron_restart: '*/6 * * * *',
       time: true,
       env: {
         NODE_ENV: 'production',
@@ -56,7 +58,8 @@ module.exports = {
     },
     {
       // Coleta SNMP das impressoras. Cron proprio porque a leitura e mais
-      // lenta (~21s) e o nivel do toner muda devagar — 1x por hora basta.
+      // lenta (~21s para 103 impressoras) e nao pode competir com a
+      // varredura de telefones.
       //
       // Sem este app, a coleta so acontece quando alguem clica em
       // "Coletar impressoras": o painel fica mostrando dado de dias atras.
@@ -69,7 +72,8 @@ module.exports = {
       instances: 1,
       // tarefa pontual: roda, termina e espera o proximo ciclo do cron
       autorestart: false,
-      cron_restart: '0 * * * *',
+      // 12 em 12 minutos: 120 ciclos/dia
+      cron_restart: '*/12 * * * *',
       time: true,
       env: {
         NODE_ENV: 'production',

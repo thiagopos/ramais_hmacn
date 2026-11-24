@@ -526,8 +526,8 @@ O `ecosystem.config.cjs` define três apps:
 | App | Comportamento |
 |---|---|
 | `voip-web` | servidor web + API; `autorestart: true` (PM2 religa se cair) |
-| `voip-monitor` | varredura de telefones (`enrich --monitor`); `autorestart: false` + `cron_restart: '*/15 * * * *'` — roda, termina e aguarda o próximo ciclo |
-| `impressoras-monitor` | coleta SNMP das impressoras; `autorestart: false` + `cron_restart: '0 * * * *'` — 1x por hora, porque a leitura leva ~21s e o toner muda devagar |
+| `voip-monitor` | varredura de telefones (`enrich --monitor`); `autorestart: false` + `cron_restart: '*/6 * * * *'` — 240 ciclos/dia, varredura de ~3,6s |
+| `impressoras-monitor` | coleta SNMP das impressoras; `autorestart: false` + `cron_restart: '*/12 * * * *'` — 120 ciclos/dia, coleta de ~21s |
 
 > **Os dois monitores aparecem como `stopped` entre ciclos — isso é o esperado.**
 > Com `autorestart: false`, o PM2 executa a tarefa, ela termina e fica parada
