@@ -91,9 +91,19 @@ export async function enrichPhones({
     const novos = [];
     const movidos = [];
     const substituidos = [];
+    const semRamal = [];
 
     for (const [ip, id] of found) {
       if (known.has(ip)) continue; // ja conhecido neste IP
+
+      // Aparelho que responde ao SIP mas NAO traz ramal (o 200 OK sem
+      // Contact) esta ligado e registrado, mas sem numero atribuido. Nao e
+      // um posto de trabalho: nao entra no inventario, senao a lista enche
+      // de linhas sem ramal que ninguem consegue identificar.
+      if (!id.ramal) {
+        semRamal.push({ ip, mac: id.mac, model: id.model });
+        continue;
+      }
 
       const anterior = acharMesmoAparelho(db, { mac: id.mac, ramal: id.ramal, ipAtual: ip });
 
@@ -199,6 +209,10 @@ export async function enrichPhones({
         log(`    ramal ${String(s.ramal || '?').padEnd(7)} ${s.de} (${s.macAntigo}) -> ${s.para} (${s.macNovo})`);
       }
     }
+    if (semRamal.length) {
+      log(`\n  ${c.dim('APARELHOS SEM RAMAL (nao entram no inventario):')}`);
+      for (const s of semRamal) log(`    ${s.ip.padEnd(15)} ${c.dim(s.mac || '')} ${s.model || ''}`);
+    }
     if (desaparecidos.length) {
       log(`\n  ${c.red('DESAPARECIDOS (nao responderam):')}`);
       for (const d of desaparecidos) log(`    ${d.ip.padEnd(15)} ramal ${d.ramal || '?'}  visto em ${d.last_seen}`);
@@ -212,7 +226,7 @@ export async function enrichPhones({
     return {
       total: rows.length, scanned: allIps.length, found: found.size,
       online, offline: rows.length - online, withRamal,
-      novos, desaparecidos, changed, movidos, substituidos,
+      novos, desaparecidos, changed, movidos, substituidos, semRamal,
     };
   }
 
