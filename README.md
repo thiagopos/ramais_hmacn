@@ -521,12 +521,25 @@ desenvolvimento:
 
 ## Rodando com PM2 (recomendado)
 
-O `ecosystem.config.cjs` define dois apps:
+O `ecosystem.config.cjs` define três apps:
 
 | App | Comportamento |
 |---|---|
 | `voip-web` | servidor web + API; `autorestart: true` (PM2 religa se cair) |
-| `voip-monitor` | varredura `enrich --monitor`; `autorestart: false` + `cron_restart: '0 * * * *'` — roda, termina e aguarda o próximo ciclo |
+| `voip-monitor` | varredura de telefones (`enrich --monitor`); `autorestart: false` + `cron_restart: '*/15 * * * *'` — roda, termina e aguarda o próximo ciclo |
+| `impressoras-monitor` | coleta SNMP das impressoras; `autorestart: false` + `cron_restart: '0 * * * *'` — 1x por hora, porque a leitura leva ~21s e o toner muda devagar |
+
+> **Os dois monitores aparecem como `stopped` entre ciclos — isso é o esperado.**
+> Com `autorestart: false`, o PM2 executa a tarefa, ela termina e fica parada
+> até o horário do cron. Só `errored` indica problema.
+>
+> Para conferir se o agendamento está de fato rodando, não olhe o status:
+> consulte a última execução.
+>
+> ```bash
+> pm2 describe voip-monitor | grep "cron restart"     # o cron está armado?
+> pm2 logs impressoras-monitor --lines 20             # a coleta rodou?
+> ```
 
 ```bash
 pm2 start ecosystem.config.cjs

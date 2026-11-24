@@ -54,5 +54,27 @@ module.exports = {
         NODE_NO_WARNINGS: '1',
       },
     },
+    {
+      // Coleta SNMP das impressoras. Cron proprio porque a leitura e mais
+      // lenta (~21s) e o nivel do toner muda devagar — 1x por hora basta.
+      //
+      // Sem este app, a coleta so acontece quando alguem clica em
+      // "Coletar impressoras": o painel fica mostrando dado de dias atras.
+      name: 'impressoras-monitor',
+      namespace: 'default',
+      script: 'scripts/coletar-impressoras.mjs',
+      args: '',
+      cwd: __dirname,
+      exec_mode: 'fork_mode',
+      instances: 1,
+      // tarefa pontual: roda, termina e espera o proximo ciclo do cron
+      autorestart: false,
+      cron_restart: '0 * * * *',
+      time: true,
+      env: {
+        NODE_ENV: 'production',
+        NODE_NO_WARNINGS: '1',
+      },
+    },
   ],
 };
