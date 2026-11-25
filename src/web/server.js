@@ -32,7 +32,10 @@ import {
   SESSAO_HORAS, cookieLimpo, cookieSessao,
   gerarToken, paginaLogin, paginaNegado, tokenDaRequisicao, esc,
 } from './auth.js';
-import { autenticar, buscarUsuarios, buscarPorLogin } from './ldap.js';
+import {
+  autenticar, buscarUsuarios, buscarPorLogin,
+  buscarExploradorPorNome, buscarExploradorPorLogins,
+} from './ldap.js';
 import { carregarConfigAd } from '../../config/ad.js';
 import {
   listarImpressoras, detalheImpressora, resumoImpressoras,
@@ -850,6 +853,33 @@ export async function startWeb({ dbPath = 'voip.sqlite', port = 8080, host = '12
       }
 
       // busca no AD para o cadastro (usa a conta de servico do .env)
+      // ---------------- explorador AD (consulta somente leitura) ----------------
+
+      if (route === '/api/explorador-ad/nome' && req.method === 'GET') {
+        const termo = (url.searchParams.get('q') || '').trim();
+        if (!termo) return json(req, res, 400, { error: 'Informe um nome para buscar' });
+        try {
+          const achados = await buscarExploradorPorNome(adConfig, termo);
+          return json(req, res, 200, { rows: achados, termo });
+        } catch (err) {
+          return json(req, res, 502, { error: err.message });
+        }
+      }
+
+      if (route === '/api/explorador-ad/logins' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const texto = String(body.logins || '');
+        // separa por virgula, ponto-e-virgula, espaco ou quebra de linha
+        const logins = texto.split(/[,;\s]+/).map((l) => l.trim()).filter(Boolean);
+        if (!logins.length) return json(req, res, 400, { error: 'Informe ao menos um login' });
+        try {
+          const r = await buscarExploradorPorLogins(adConfig, logins);
+          return json(req, res, 200, { ...r, total: logins.length });
+        } catch (err) {
+          return json(req, res, 502, { error: err.message });
+        }
+      }
+
       if (route === '/api/usuarios/buscar-ad' && req.method === 'GET') {
         const termo = (url.searchParams.get('q') || '').trim();
         try {

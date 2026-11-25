@@ -18,6 +18,49 @@ export const ATRIBUTOS = [
 ];
 
 /**
+ * Atributos do Explorador AD: tudo que ajuda a identificar uma pessoa.
+ * Inclui os do cadastro mais UPN, celular, gestor, grupos e data de criacao.
+ */
+export const ATRIBUTOS_EXPLORADOR = [
+  'cn', 'sn', 'givenName', 'displayName', 'mail', 'sAMAccountName',
+  'userPrincipalName', 'department', 'title', 'telephoneNumber',
+  'mobile', 'company', 'manager', 'memberOf', 'whenCreated',
+  'name', 'distinguishedName', 'description',
+];
+
+/**
+ * Normaliza um entry LDAP do Explorador para a interface.
+ * `memberOf` vem como lista de DNs: mostramos so o CN de cada grupo.
+ */
+export function mapearExplorador(raw) {
+  const um = (v) => (Array.isArray(v) ? v[0] : v) || '';
+  const lista = (v) => (Array.isArray(v) ? v : (v ? [v] : []));
+  const cnDoDn = (dn) => {
+    const m = String(dn).match(/^CN=([^,]+)/i);
+    return m ? m[1] : String(dn);
+  };
+
+  return {
+    login: um(raw.sAMAccountName),
+    nome: um(raw.displayName) || um(raw.cn) || um(raw.name),
+    sobrenome: um(raw.sn),
+    primeiroNome: um(raw.givenName),
+    email: um(raw.mail),
+    upn: um(raw.userPrincipalName),
+    departamento: um(raw.department),
+    cargo: um(raw.title),
+    empresa: um(raw.company),
+    telefone: um(raw.telephoneNumber),
+    celular: um(raw.mobile),
+    descricao: um(raw.description),
+    gestor: um(raw.manager) ? cnDoDn(um(raw.manager)) : '',
+    grupos: lista(raw.memberOf).map(cnDoDn),
+    criadoEm: um(raw.whenCreated),
+    dn: um(raw.distinguishedName),
+  };
+}
+
+/**
  * Cria um cliente LDAP com failover entre DCs e timeout curto.
  * @param {{url: string|string[], timeoutMs?: number}} cfg
  */
@@ -225,6 +268,87 @@ export function escaparFiltro(str) {
     .replace(/\(/g, '\\28')
     .replace(/\)/g, '\\29')
     .replace(/\x00/g, '\\00');
+}
+
+/**
+ * Explorador AD — busca por NOME com prefix match.
+ *
+ * Prefixo usa o indice do AD, entao e rapido. Procura nos quatro campos em
+ * que um nome pode estar grafado: displayName, cn, name e sn (sobrenome).
+ * Ex.: "silva" acha "Silva, Maria" pelo sn; "Maria" acha pelo displayName.
+ *
+ * Tem comportamento identico ao Explorador da intranet.
+ *
+ * @param {object} cfg
+ * @param {string} termo
+ * @returns {Promise<Array<object>>}
+ */
+export async function buscarExploradorPorNome(cfg, termo) {
+  const t = String(termo || '').trim();
+  if (!t) return [];
+  if (!cfg.buscaUsuario || !cfg.buscaSenha) {
+    throw new Error('Busca no AD não configurada. Defina AD_SEARCH_USER e AD_SEARCH_PASSWORD no .env.');
+  }
+
+  const s = escaparFiltro(t);
+  const filtro = `(&(objectCategory=person)`
+    + `(|(displayName=${s}*)(cn=${s}*)(name=${s}*)(sn=${s}*)))`;
+
+  const client = criarCliente(cfg, { timeout: cfg.timeoutMs, connectTimeout: 4000 });
+  try {
+    await bindProtegido(client, `${cfg.buscaUsuario}@${cfg.domain}`, cfg.buscaSenha, cfg.timeoutMs);
+    const achados = await buscarEntradas(client, cfg, filtro, ATRIBUTOS_EXPLORADOR, 200);
+    return achados.map(mapearExplorador);
+  } finally {
+    try { client.destroy(); } catch { /* ja fechado */ }
+  }
+}
+
+/**
+ * Explorador AD — busca por LISTA de logins (sAMAccountName exato).
+ *
+ * Monta um filtro OR unico com todos os logins, em vez de uma consulta por
+ * login: 50 logins custam uma ida ao AD, nao 50.
+ *
+ * Devolve tambem quem NAO foi encontrado — e o dado mais importante para
+ * conferir uma lista copiada de outro sistema.
+ *
+ * @param {object} cfg
+ * @param {string[]} logins
+ * @returns {Promise<{encontrados: object[], naoEncontrados: string[]}>}
+ */
+export async function buscarExploradorPorLogins(cfg, logins) {
+  const unicos = [...new Set(
+    (Array.isArray(logins) ? logins : [])
+      .map((l) => String(l || '').trim())
+      .filter(Boolean),
+  )];
+  if (!unicos.length) return { encontrados: [], naoEncontrados: [] };
+  if (!cfg.buscaUsuario || !cfg.buscaSenha) {
+    throw new Error('Busca no AD não configurada. Defina AD_SEARCH_USER e AD_SEARCH_PASSWORD no .env.');
+  }
+  if (unicos.length > 500) {
+    throw new Error('Máximo de 500 logins por busca.');
+  }
+
+  const partes = unicos.map((l) => `(sAMAccountName=${escaparFiltro(l)})`).join('');
+  const filtro = unicos.length === 1 ? partes : `(|${partes})`;
+
+  const client = criarCliente(cfg, { timeout: cfg.timeoutMs, connectTimeout: 4000 });
+  try {
+    await bindProtegido(client, `${cfg.buscaUsuario}@${cfg.domain}`, cfg.buscaSenha, cfg.timeoutMs);
+    const achados = await buscarEntradas(client, cfg, filtro, ATRIBUTOS_EXPLORADOR, 500);
+    const encontrados = achados.map(mapearExplorador);
+
+    // o AD compara login sem diferenciar maiuscula: normalizamos para saber
+    // quem realmente nao existe
+    const achadosSet = new Set(encontrados.map((u) => u.login.toLowerCase()));
+    const naoEncontrados = unicos.filter((l) => !achadosSet.has(l.toLowerCase()));
+
+    return { encontrados, naoEncontrados };
+  } finally {
+    try { client.destroy(); } catch { /* ja fechado */ }
+  }
 }
 
 /** Executa uma busca ja autenticada e devolve os entries crus. */
